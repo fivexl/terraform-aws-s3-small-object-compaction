@@ -1,0 +1,3 @@
+# boto3 ships in the Lambda runtime; listed here only so CI can import the
+# handlers for linting and unit tests
+boto3

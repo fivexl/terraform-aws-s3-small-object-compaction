@@ -33,6 +33,87 @@ Both variants can be triggered on an **EventBridge schedule** (disabled by defau
 See [examples/basic](./examples/basic).
 
 <!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+|------|---------|
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.7 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
+
+## Providers
+
+| Name | Version |
+|------|---------|
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.63.0 |
+
+## Modules
+
+| Name | Source | Version |
+|------|--------|---------|
+| <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
+| <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
+| <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [aws_cloudwatch_event_rule.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
+| [aws_cloudwatch_event_rule.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
+| [aws_cloudwatch_event_target.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_log_group.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
+| [aws_iam_role.events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role_policy.events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_lambda_permission.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_permission) | resource |
+| [aws_sfn_state_machine.compaction](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sfn_state_machine) | resource |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
+| [aws_iam_policy_document.events_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.events_start_execution](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.state_machine_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
+| [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| <a name="input_cloudwatch_logs_retention_in_days"></a> [cloudwatch\_logs\_retention\_in\_days](#input\_cloudwatch\_logs\_retention\_in\_days) | Retention in days for the Lambda and Step Functions CloudWatch log groups | `number` | `14` | no |
+| <a name="input_compact_lambda_memory_size"></a> [compact\_lambda\_memory\_size](#input\_compact\_lambda\_memory\_size) | Memory size in MB for the per-prefix compaction Lambda used by Step Functions | `number` | `128` | no |
+| <a name="input_compact_lambda_timeout"></a> [compact\_lambda\_timeout](#input\_compact\_lambda\_timeout) | Timeout in seconds for the per-prefix compaction Lambda used by Step Functions | `number` | `300` | no |
+| <a name="input_create_standalone_lambda"></a> [create\_standalone\_lambda](#input\_create\_standalone\_lambda) | Create the standalone compaction Lambda variant that processes all prefixes in a single invocation | `bool` | `true` | no |
+| <a name="input_create_step_functions"></a> [create\_step\_functions](#input\_create\_step\_functions) | Create the Step Functions variant that compacts prefixes in parallel with a Distributed Map | `bool` | `true` | no |
+| <a name="input_date_format"></a> [date\_format](#input\_date\_format) | Python strftime format of the date prefixes under the source URI, e.g. %Y/%m/%d for year/month/day | `string` | `"%Y/%m/%d"` | no |
+| <a name="input_lambda_ephemeral_storage_size"></a> [lambda\_ephemeral\_storage\_size](#input\_lambda\_ephemeral\_storage\_size) | Ephemeral storage (/tmp) in MB for the compaction Lambdas. Must fit a full day of merged objects | `number` | `2048` | no |
+| <a name="input_lambda_runtime"></a> [lambda\_runtime](#input\_lambda\_runtime) | Python runtime used by all Lambda functions | `string` | `"python3.12"` | no |
+| <a name="input_list_lambda_memory_size"></a> [list\_lambda\_memory\_size](#input\_list\_lambda\_memory\_size) | Memory size in MB for the prefix-listing Lambda used by Step Functions | `number` | `128` | no |
+| <a name="input_list_lambda_timeout"></a> [list\_lambda\_timeout](#input\_list\_lambda\_timeout) | Timeout in seconds for the prefix-listing Lambda used by Step Functions | `number` | `60` | no |
+| <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Prefix used for naming all resources created by this module | `string` | `"s3-object-compaction"` | no |
+| <a name="input_previous_days"></a> [previous\_days](#input\_previous\_days) | How many days back to compact. Each daily date prefix in the range is compacted into one object | `number` | `1` | no |
+| <a name="input_schedule_enabled"></a> [schedule\_enabled](#input\_schedule\_enabled) | Enable the EventBridge schedules. Disabled by default, matching the upstream solution | `bool` | `false` | no |
+| <a name="input_schedule_expression"></a> [schedule\_expression](#input\_schedule\_expression) | EventBridge schedule expression. Defaults to rate(previous\_days days) when null | `string` | `null` | no |
+| <a name="input_sfn_max_concurrency"></a> [sfn\_max\_concurrency](#input\_sfn\_max\_concurrency) | Maximum concurrent child executions of the Distributed Map | `number` | `100` | no |
+| <a name="input_source_s3_uri"></a> [source\_s3\_uri](#input\_source\_s3\_uri) | S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it | `string` | n/a | yes |
+| <a name="input_standalone_lambda_memory_size"></a> [standalone\_lambda\_memory\_size](#input\_standalone\_lambda\_memory\_size) | Memory size in MB for the standalone compaction Lambda | `number` | `1024` | no |
+| <a name="input_standalone_lambda_timeout"></a> [standalone\_lambda\_timeout](#input\_standalone\_lambda\_timeout) | Timeout in seconds for the standalone compaction Lambda | `number` | `900` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to all resources created by this module | `map(string)` | `{}` | no |
+| <a name="input_target_s3_uri"></a> [target\_s3\_uri](#input\_target\_s3\_uri) | S3 URI where compacted objects are written, e.g. s3://my-bucket/compacted/. Date prefixes are appended to it | `string` | n/a | yes |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| <a name="output_compact_lambda_function_arn"></a> [compact\_lambda\_function\_arn](#output\_compact\_lambda\_function\_arn) | ARN of the per-prefix compaction Lambda, empty string when create\_step\_functions is false |
+| <a name="output_list_lambda_function_arn"></a> [list\_lambda\_function\_arn](#output\_list\_lambda\_function\_arn) | ARN of the prefix-listing Lambda, empty string when create\_step\_functions is false |
+| <a name="output_schedule_expression"></a> [schedule\_expression](#output\_schedule\_expression) | EventBridge schedule expression used by both trigger rules |
+| <a name="output_standalone_lambda_function_arn"></a> [standalone\_lambda\_function\_arn](#output\_standalone\_lambda\_function\_arn) | ARN of the standalone compaction Lambda, empty string when create\_standalone\_lambda is false |
+| <a name="output_standalone_lambda_function_name"></a> [standalone\_lambda\_function\_name](#output\_standalone\_lambda\_function\_name) | Name of the standalone compaction Lambda, empty string when create\_standalone\_lambda is false |
+| <a name="output_state_machine_arn"></a> [state\_machine\_arn](#output\_state\_machine\_arn) | ARN of the compaction Step Functions state machine, null when create\_step\_functions is false |
+| <a name="output_state_machine_name"></a> [state\_machine\_name](#output\_state\_machine\_name) | Name of the compaction Step Functions state machine, null when create\_step\_functions is false |
+| <a name="output_state_machine_role_arn"></a> [state\_machine\_role\_arn](#output\_state\_machine\_role\_arn) | ARN of the IAM role assumed by the state machine, null when create\_step\_functions is false |
 <!-- END_TF_DOCS -->
 
 ## License
