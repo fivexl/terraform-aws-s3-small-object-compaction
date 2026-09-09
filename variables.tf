@@ -5,12 +5,12 @@ variable "name_prefix" {
 }
 
 variable "source_s3_uri" {
-  description = "S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it"
+  description = "S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it. A key prefix is required: the Lambda IAM policies are scoped to it"
   type        = string
 
   validation {
-    condition     = startswith(var.source_s3_uri, "s3://")
-    error_message = "source_s3_uri must start with s3://"
+    condition     = can(regex("^s3://[^/]+/.+", var.source_s3_uri))
+    error_message = "source_s3_uri must be of the form s3://<bucket>/<prefix>. A bare bucket URI is rejected because the Lambda read permissions are scoped to the prefix."
   }
 }
 
