@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-09
+
+### Changed
+
+- Pin the nested `terraform-aws-modules/lambda/aws` module to exactly `8.8.0` instead of `~> 8.0`. Module sources are not covered by `.terraform.lock.hcl`, so a floating constraint re-resolved to the newest 8.x on every `terraform init`, and that module runs `package.py` at plan time. Bumps are now deliberate one-line diffs. No resource changes
+
 ## [0.2.0] - 2026-09-09
 
 ### Changed

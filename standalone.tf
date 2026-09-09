@@ -1,6 +1,6 @@
 module "standalone_compact_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "~> 8.0"
+  version = "8.8.0"
 
   create = var.create_standalone_lambda
 
