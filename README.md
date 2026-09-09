@@ -28,6 +28,10 @@ The module deploys two variants of the compaction solution:
 
 Both variants can be triggered on an **EventBridge schedule** (disabled by default, matching the upstream solution).
 
+### Permissions
+
+The handlers read the source and destination URIs from the invocation event, so the scheduled payload is not a permission boundary. The Lambda execution roles are therefore granted `s3:ListBucket` and `s3:GetObject` only on the key prefix of `source_s3_uri`, and an invocation that points at another prefix fails with `AccessDenied`. For that reason `source_s3_uri` must include a key prefix; a bare `s3://bucket/` is rejected at plan time. The functions never delete source objects.
+
 ## Usage
 
 See [examples/basic](./examples/basic).
@@ -96,7 +100,7 @@ See [examples/basic](./examples/basic).
 | <a name="input_schedule_enabled"></a> [schedule\_enabled](#input\_schedule\_enabled) | Enable the EventBridge schedules. Disabled by default, matching the upstream solution | `bool` | `false` | no |
 | <a name="input_schedule_expression"></a> [schedule\_expression](#input\_schedule\_expression) | EventBridge schedule expression. Defaults to rate(previous\_days days) when null | `string` | `null` | no |
 | <a name="input_sfn_max_concurrency"></a> [sfn\_max\_concurrency](#input\_sfn\_max\_concurrency) | Maximum concurrent child executions of the Distributed Map | `number` | `100` | no |
-| <a name="input_source_s3_uri"></a> [source\_s3\_uri](#input\_source\_s3\_uri) | S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it | `string` | n/a | yes |
+| <a name="input_source_s3_uri"></a> [source\_s3\_uri](#input\_source\_s3\_uri) | S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it. A key prefix is required: the Lambda IAM policies are scoped to it | `string` | n/a | yes |
 | <a name="input_standalone_lambda_memory_size"></a> [standalone\_lambda\_memory\_size](#input\_standalone\_lambda\_memory\_size) | Memory size in MB for the standalone compaction Lambda | `number` | `1024` | no |
 | <a name="input_standalone_lambda_timeout"></a> [standalone\_lambda\_timeout](#input\_standalone\_lambda\_timeout) | Timeout in seconds for the standalone compaction Lambda | `number` | `900` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to all resources created by this module | `map(string)` | `{}` | no |
