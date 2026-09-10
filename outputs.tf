@@ -20,17 +20,17 @@ output "compact_lambda_function_arn" {
 
 output "state_machine_arn" {
   description = "ARN of the compaction Step Functions state machine, null when create_step_functions is false"
-  value       = try(aws_sfn_state_machine.compaction[0].arn, null)
+  value       = var.create_step_functions ? module.step_function.state_machine_arn : null
 }
 
 output "state_machine_name" {
   description = "Name of the compaction Step Functions state machine, null when create_step_functions is false"
-  value       = try(aws_sfn_state_machine.compaction[0].name, null)
+  value       = var.create_step_functions ? module.step_function.state_machine_name : null
 }
 
 output "state_machine_role_arn" {
   description = "ARN of the IAM role assumed by the state machine, null when create_step_functions is false"
-  value       = try(aws_iam_role.state_machine[0].arn, null)
+  value       = var.create_step_functions ? module.step_function.role_arn : null
 }
 
 output "schedule_expression" {

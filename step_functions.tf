@@ -127,145 +127,96 @@ module "compact_lambda" {
   tags = var.tags
 }
 
-# Vended execution logs carry no payload secrets; a customer-managed key is
-# left to the consumer's account-level CloudWatch encryption policy
-#tfsec:ignore:aws-cloudwatch-log-group-customer-key
-resource "aws_cloudwatch_log_group" "state_machine" {
-  count = var.create_step_functions ? 1 : 0
+# The module owns the state machine, its IAM role and its execution log group.
+# It defaults the log group name to /aws/vendedlogs/states/<name>, which is the
+# prefix that keeps Step Functions logging inside the shared CloudWatch Logs
+# resource policy size limit, and its attach_cloudwatch_logs_policy default
+# emits the vended-log-delivery statement. Vended execution logs carry no
+# payload secrets, so no customer-managed key is set here; leave that to the
+# consumer's account-level CloudWatch encryption policy
+module "step_function" {
+  source  = "terraform-aws-modules/step-functions/aws"
+  version = "5.1.1"
 
-  # The /aws/vendedlogs/ prefix keeps Step Functions logging inside the shared
-  # CloudWatch Logs resource policy size limit
-  name              = "/aws/vendedlogs/states/${local.state_machine_name}"
-  retention_in_days = var.cloudwatch_logs_retention_in_days
-
-  tags = var.tags
-}
-
-data "aws_iam_policy_document" "state_machine_assume" {
-  count = var.create_step_functions ? 1 : 0
-
-  statement {
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["states.amazonaws.com"]
-    }
-
-    # Confused-deputy guard. The role carries "*"-scoped log-delivery grants
-    # that cannot be narrowed, so only this account's compaction state machine
-    # may assume it, not any state machine a principal with iam:PassRole creates
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [data.aws_caller_identity.current.account_id]
-    }
-
-    condition {
-      test     = "ArnLike"
-      variable = "aws:SourceArn"
-      values   = [local.state_machine_arn]
-    }
-  }
-}
-
-data "aws_iam_policy_document" "state_machine" {
-  count = var.create_step_functions ? 1 : 0
-
-  statement {
-    sid     = "InvokeCompactionLambdas"
-    actions = ["lambda:InvokeFunction"]
-    resources = [
-      module.list_lambda.lambda_function_arn,
-      module.compact_lambda.lambda_function_arn,
-      "${module.list_lambda.lambda_function_arn}:*",
-      "${module.compact_lambda.lambda_function_arn}:*",
-    ]
-  }
-
-  statement {
-    sid       = "ReadPrefixManifest"
-    actions   = ["s3:GetObject"]
-    resources = ["${local.target_bucket_arn}/*"]
-  }
-
-  statement {
-    sid       = "StartDistributedMapChildExecutions"
-    actions   = ["states:StartExecution"]
-    resources = [local.state_machine_arn]
-  }
-
-  statement {
-    sid       = "ManageDistributedMapChildExecutions"
-    actions   = ["states:DescribeExecution", "states:StopExecution"]
-    resources = ["${local.state_machine_arn}:*"]
-  }
-
-  # CloudWatch Logs delivery for Step Functions supports only "*" resources
-  statement {
-    sid = "VendedLogDelivery"
-    actions = [
-      "logs:CreateLogDelivery",
-      "logs:GetLogDelivery",
-      "logs:UpdateLogDelivery",
-      "logs:DeleteLogDelivery",
-      "logs:ListLogDeliveries",
-      "logs:PutResourcePolicy",
-      "logs:DescribeResourcePolicies",
-      "logs:DescribeLogGroups",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid = "XRayTracing"
-    actions = [
-      "xray:PutTraceSegments",
-      "xray:PutTelemetryRecords",
-      "xray:GetSamplingRules",
-      "xray:GetSamplingTargets",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role" "state_machine" {
-  count = var.create_step_functions ? 1 : 0
-
-  name               = "${local.state_machine_name}-role"
-  assume_role_policy = data.aws_iam_policy_document.state_machine_assume[0].json
-
-  tags = var.tags
-}
-
-resource "aws_iam_role_policy" "state_machine" {
-  count = var.create_step_functions ? 1 : 0
-
-  name   = "compaction"
-  role   = aws_iam_role.state_machine[0].id
-  policy = data.aws_iam_policy_document.state_machine[0].json
-}
-
-resource "aws_sfn_state_machine" "compaction" {
-  count = var.create_step_functions ? 1 : 0
+  create = var.create_step_functions
 
   name       = local.state_machine_name
-  role_arn   = aws_iam_role.state_machine[0].arn
+  type       = "STANDARD"
   definition = local.state_machine_definition
 
-  logging_configuration {
-    log_destination        = "${aws_cloudwatch_log_group.state_machine[0].arn}:*"
+  role_name = "${local.state_machine_name}-role"
+
+  cloudwatch_log_group_retention_in_days = var.cloudwatch_logs_retention_in_days
+
+  logging_configuration = {
     include_execution_data = true
     level                  = "ALL"
   }
 
-  tracing_configuration {
-    enabled = true
+  # Resources are passed as explicit lists rather than `true`: the lambda and
+  # stepfunction integrations ship no default_resources. The state machine ARN
+  # stays the constructed local so the role policy does not depend on the state
+  # machine whose child executions the Distributed Map starts
+  service_integrations = {
+    lambda = {
+      lambda = [
+        module.list_lambda.lambda_function_arn,
+        module.compact_lambda.lambda_function_arn,
+        "${module.list_lambda.lambda_function_arn}:*",
+        "${module.compact_lambda.lambda_function_arn}:*",
+      ]
+    }
+
+    stepfunction = {
+      stepfunction = [local.state_machine_arn]
+    }
+
+    # Passing xray is also what switches on tracing_configuration in the module
+    xray = {
+      xray = true
+    }
+  }
+
+  # No service integration covers these two. stepfunction_Sync is not a
+  # substitute for the second one: it would also grant states:StartSyncExecution,
+  # which this state machine never calls
+  attach_policy_statements = true
+  policy_statements = {
+    read_prefix_manifest = {
+      sid       = "ReadPrefixManifest"
+      effect    = "Allow"
+      actions   = ["s3:GetObject"]
+      resources = ["${local.target_bucket_arn}/*"]
+    }
+    manage_distributed_map_child_executions = {
+      sid       = "ManageDistributedMapChildExecutions"
+      effect    = "Allow"
+      actions   = ["states:DescribeExecution", "states:StopExecution"]
+      resources = ["${local.state_machine_arn}:*"]
+    }
   }
 
   tags = var.tags
+}
 
-  depends_on = [aws_iam_role_policy.state_machine]
+# The state machine, its role and its log group carry over into the module
+# untouched. aws_iam_role_policy has no counterpart to move to -- the module
+# models the same permissions as managed policies, a different resource type --
+# so that one inline policy is destroyed and replaced on apply. The set of
+# granted actions and resources is unchanged
+moved {
+  from = aws_sfn_state_machine.compaction[0]
+  to   = module.step_function.aws_sfn_state_machine.this[0]
+}
+
+moved {
+  from = aws_iam_role.state_machine[0]
+  to   = module.step_function.aws_iam_role.this[0]
+}
+
+moved {
+  from = aws_cloudwatch_log_group.state_machine[0]
+  to   = module.step_function.aws_cloudwatch_log_group.sfn[0]
 }
 
 data "aws_iam_policy_document" "events_assume" {
@@ -286,7 +237,7 @@ data "aws_iam_policy_document" "events_start_execution" {
 
   statement {
     actions   = ["states:StartExecution"]
-    resources = [aws_sfn_state_machine.compaction[0].arn]
+    resources = [module.step_function.state_machine_arn]
   }
 }
 
@@ -322,7 +273,7 @@ resource "aws_cloudwatch_event_target" "state_machine" {
   count = var.create_step_functions ? 1 : 0
 
   rule     = aws_cloudwatch_event_rule.state_machine[0].name
-  arn      = aws_sfn_state_machine.compaction[0].arn
+  arn      = module.step_function.state_machine_arn
   role_arn = aws_iam_role.events[0].arn
   input    = local.schedule_input
 }

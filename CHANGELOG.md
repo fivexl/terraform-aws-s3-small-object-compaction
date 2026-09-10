@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Step Functions state machine, its IAM role and its execution log group are now created by [`terraform-aws-modules/step-functions/aws`](https://registry.terraform.io/modules/terraform-aws-modules/step-functions/aws) pinned to `5.1.1`, instead of hand-rolled `aws_sfn_state_machine` / `aws_iam_role` / `aws_cloudwatch_log_group` resources ([#5](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/5)). Section 5 of the FivexL module standardisation guide requires a verified registry module where one exists, and the Lambda functions in this module already follow that rule. The module's `service_integrations` and its `attach_cloudwatch_logs_policy` default now supply the `lambda:InvokeFunction`, `states:StartExecution`, X-Ray and vended-log-delivery statements; the two statements with no service integration (`s3:GetObject` on the prefix manifest and `states:DescribeExecution` / `states:StopExecution` on child executions) are passed as `policy_statements`. The set of granted actions and resources is unchanged
+- **`aws` provider floor raised from `>= 6.0` to `>= 6.28`**, required by the step-functions module
+
+### Upgrade notes
+
+`moved` blocks carry the state machine, its IAM role and its log group into the
+module, so none of the three is replaced and the role keeps its
+`<name>-state-machine-role` name. One resource cannot be moved:
+`aws_iam_role_policy.state_machine` is destroyed and the same permissions are
+recreated as managed policies attached to the role, because that is how the
+module models them. Expect a plan along these lines and no other drift:
+
+- 1 destroy (`aws_iam_role_policy.state_machine`)
+- 4 adds (the module's `lambda`, `stepfunction`, `xray` and `-inline` policies plus their attachments; `-logs` too if you were not already logging)
+- in-place updates on the role (`force_detach_policies`, and the trust principal moving from `states.amazonaws.com` to the regional `states.<region>.amazonaws.com`) and on the state machine (a `Name` tag)
+
 ### Fixed
 
 - Compaction is now idempotent. Both compact handlers wrote their merged output to a fixed path under `/tmp` in append mode and never removed it. Lambda reuses warm execution environments with `/tmp` intact, so re-running a date appended the day's data onto the previous run's file and uploaded an object with the content doubled, a retry after a timeout appended onto the partial file, and a long backlog filled the disk. The output is now a fresh temp file per run, truncated on open and removed afterwards, so re-running a date overwrites instead of appending ([#7](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/7))
