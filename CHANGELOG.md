@@ -22,7 +22,7 @@ recreated as managed policies attached to the role, because that is how the
 module models them. Expect a plan along these lines and no other drift:
 
 - 1 destroy (`aws_iam_role_policy.state_machine`)
-- 4 adds (the module's `lambda`, `stepfunction`, `xray` and `-inline` policies plus their attachments; `-logs` too if you were not already logging)
+- 10 adds: 5 managed policies (`-lambda`, `-stepfunction`, `-xray`, `-inline`, `-logs`) and their 5 attachments. `-logs` is unconditional, because this module hardcodes `logging_configuration.level = "ALL"`
 - in-place updates on the role (`force_detach_policies`, and the trust principal moving from `states.amazonaws.com` to the regional `states.<region>.amazonaws.com`) and on the state machine (a `Name` tag)
 
 ### Fixed

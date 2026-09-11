@@ -40,20 +40,20 @@ See [examples/basic](./examples/basic).
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.7 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.28 |
 
 ## Providers
 
 | Name | Version |
-| ---- | ------- |
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.64.0 |
+|------|---------|
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.63.0 |
 
 ## Modules
 
 | Name | Source | Version |
-| ---- | ------ | ------- |
+|------|--------|---------|
 | <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
 | <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
 | <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
@@ -62,7 +62,7 @@ See [examples/basic](./examples/basic).
 ## Resources
 
 | Name | Type |
-| ---- | ---- |
+|------|------|
 | [aws_cloudwatch_event_rule.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
 | [aws_cloudwatch_event_rule.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
 | [aws_cloudwatch_event_target.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
@@ -79,7 +79,7 @@ See [examples/basic](./examples/basic).
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+|------|-------------|------|---------|:--------:|
 | <a name="input_cloudwatch_logs_retention_in_days"></a> [cloudwatch\_logs\_retention\_in\_days](#input\_cloudwatch\_logs\_retention\_in\_days) | Retention in days for the Lambda and Step Functions CloudWatch log groups | `number` | `14` | no |
 | <a name="input_compact_lambda_memory_size"></a> [compact\_lambda\_memory\_size](#input\_compact\_lambda\_memory\_size) | Memory size in MB for the per-prefix compaction Lambda used by Step Functions | `number` | `128` | no |
 | <a name="input_compact_lambda_timeout"></a> [compact\_lambda\_timeout](#input\_compact\_lambda\_timeout) | Timeout in seconds for the per-prefix compaction Lambda used by Step Functions | `number` | `300` | no |
@@ -104,7 +104,7 @@ See [examples/basic](./examples/basic).
 ## Outputs
 
 | Name | Description |
-| ---- | ----------- |
+|------|-------------|
 | <a name="output_compact_lambda_function_arn"></a> [compact\_lambda\_function\_arn](#output\_compact\_lambda\_function\_arn) | ARN of the per-prefix compaction Lambda, empty string when create\_step\_functions is false |
 | <a name="output_list_lambda_function_arn"></a> [list\_lambda\_function\_arn](#output\_list\_lambda\_function\_arn) | ARN of the prefix-listing Lambda, empty string when create\_step\_functions is false |
 | <a name="output_schedule_expression"></a> [schedule\_expression](#output\_schedule\_expression) | EventBridge schedule expression used by both trigger rules |
