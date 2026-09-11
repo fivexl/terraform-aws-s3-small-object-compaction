@@ -151,6 +151,21 @@ data "aws_iam_policy_document" "state_machine_assume" {
       type        = "Service"
       identifiers = ["states.amazonaws.com"]
     }
+
+    # Confused-deputy guard. The role carries "*"-scoped log-delivery grants
+    # that cannot be narrowed, so only this account's compaction state machine
+    # may assume it, not any state machine a principal with iam:PassRole creates
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [local.state_machine_arn]
+    }
   }
 }
 

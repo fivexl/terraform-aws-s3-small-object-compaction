@@ -57,3 +57,55 @@ def test_both_compact_handlers_share_merge_logic():
     for module in (standalone, dm_compact):
         assert callable(module.merge_objects_from_s3)
         assert callable(module.list_objects_in_s3)
+
+
+def _fake_s3(monkeypatch, module, objects, uploads):
+    """Stub the S3 calls so merge_objects_from_s3 runs against in-memory data."""
+    monkeypatch.setattr(module, "list_objects_in_s3", lambda bucket, prefix: [{"Key": k} for k in objects])
+    monkeypatch.setattr(module, "get_object_from_s3", lambda bucket, key: objects[key])
+
+    def upload_file(path, bucket, key):
+        uploads.append((key, Path(path).read_bytes()))
+
+    monkeypatch.setattr(module.s3, "upload_file", upload_file)
+
+
+def test_merge_is_idempotent_on_a_warm_container(monkeypatch, tmp_path):
+    """Re-running the same prefix must overwrite, not append, and leave /tmp clean.
+
+    Lambda keeps /tmp between invocations of a warm container, so the merge must
+    not depend on the output path being empty when it starts.
+    """
+    for module in (dm_compact, standalone):
+        objects = {"logs/2026/09/01/a.log.gz": b"aaa", "logs/2026/09/01/b.log.gz": b"bbb"}
+        uploads = []
+        _fake_s3(monkeypatch, module, objects, uploads)
+        temp_dir = str(tmp_path / module.__name__) + "/"
+        Path(temp_dir).mkdir()
+
+        for _ in range(3):
+            module.merge_objects_from_s3("src", "logs/2026/09/01/", "dst", "compacted/2026/09/01", temp_dir)
+
+        assert [content for _, content in uploads] == [b"aaabbb"] * 3
+        assert {key for key, _ in uploads} == {"compacted/2026/09/01/compacted-2026-09-01.log.gz"}
+        assert list(Path(temp_dir).iterdir()) == []
+
+
+def test_merge_removes_temp_file_when_upload_fails(monkeypatch, tmp_path):
+    objects = {"logs/x/a.log": b"aaa"}
+    _fake_s3(monkeypatch, dm_compact, objects, [])
+
+    def failing_upload(path, bucket, key):
+        raise RuntimeError("upload failed")
+
+    monkeypatch.setattr(dm_compact.s3, "upload_file", failing_upload)
+    temp_dir = str(tmp_path) + "/"
+
+    try:
+        dm_compact.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", temp_dir)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected the upload failure to propagate")
+
+    assert list(tmp_path.iterdir()) == []
