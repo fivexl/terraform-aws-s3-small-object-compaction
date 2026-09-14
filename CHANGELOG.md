@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-14
+
 ### Changed
 
 - The Step Functions state machine and its execution log group are now created by [`terraform-aws-modules/step-functions/aws`](https://registry.terraform.io/modules/terraform-aws-modules/step-functions/aws) pinned to `5.1.1`, instead of hand-rolled `aws_sfn_state_machine` / `aws_cloudwatch_log_group` resources ([#5](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/5)). Section 5 of the FivexL module standardisation guide requires a verified registry module where one exists, and the Lambda functions in this module already follow that rule. The state-machine IAM role and its policy stay in this module and are handed to the step-functions module with `use_existing_role`: the module builds its own trust policy and cannot express the `aws:SourceAccount` / `aws:SourceArn` conditions added for [#7](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/7). No IAM resource is created, destroyed or changed
