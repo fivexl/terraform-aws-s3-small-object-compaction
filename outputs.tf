@@ -30,7 +30,7 @@ output "state_machine_name" {
 
 output "state_machine_role_arn" {
   description = "ARN of the IAM role assumed by the state machine, null when create_step_functions is false"
-  value       = var.create_step_functions ? module.step_function.role_arn : null
+  value       = try(aws_iam_role.state_machine[0].arn, null)
 }
 
 output "schedule_expression" {
