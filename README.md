@@ -24,7 +24,7 @@ This project is based on [aws-samples/s3-small-object-compaction](https://github
 The module deploys two variants of the compaction solution:
 
 1. A **standalone Lambda function** (via [terraform-aws-modules/lambda/aws](https://registry.terraform.io/modules/terraform-aws-modules/lambda/aws)) that iterates over a list of Amazon S3 prefixes and compacts the objects in each into a single larger file
-2. An **AWS Step Functions state machine** using [Distributed Map](https://docs.aws.amazon.com/step-functions/latest/dg/use-dist-map-orchestrate-large-scale-parallel-workloads.html) to invoke a compaction Lambda in parallel for each prefix, for faster compaction at scale
+2. An **AWS Step Functions state machine** (via [terraform-aws-modules/step-functions/aws](https://registry.terraform.io/modules/terraform-aws-modules/step-functions/aws)) using [Distributed Map](https://docs.aws.amazon.com/step-functions/latest/dg/use-dist-map-orchestrate-large-scale-parallel-workloads.html) to invoke a compaction Lambda in parallel for each prefix, for faster compaction at scale
 
 Both variants can be triggered on an **EventBridge schedule** (disabled by default, matching the upstream solution).
 
@@ -42,7 +42,7 @@ See [examples/basic](./examples/basic).
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.7 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.28 |
 
 ## Providers
 
@@ -54,9 +54,10 @@ See [examples/basic](./examples/basic).
 
 | Name | Source | Version |
 |------|--------|---------|
-| <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
-| <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
-| <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | ~> 8.0 |
+| <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
+| <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
+| <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
+| <a name="module_step_function"></a> [step\_function](#module\_step\_function) | terraform-aws-modules/step-functions/aws | 5.1.1 |
 
 ## Resources
 
@@ -66,13 +67,11 @@ See [examples/basic](./examples/basic).
 | [aws_cloudwatch_event_rule.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
 | [aws_cloudwatch_event_target.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
 | [aws_cloudwatch_event_target.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
-| [aws_cloudwatch_log_group.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_iam_role.events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.state_machine](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_lambda_permission.standalone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_permission) | resource |
-| [aws_sfn_state_machine.compaction](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sfn_state_machine) | resource |
 | [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 | [aws_iam_policy_document.events_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.events_start_execution](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |

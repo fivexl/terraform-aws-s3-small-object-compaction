@@ -127,20 +127,6 @@ module "compact_lambda" {
   tags = var.tags
 }
 
-# Vended execution logs carry no payload secrets; a customer-managed key is
-# left to the consumer's account-level CloudWatch encryption policy
-#tfsec:ignore:aws-cloudwatch-log-group-customer-key
-resource "aws_cloudwatch_log_group" "state_machine" {
-  count = var.create_step_functions ? 1 : 0
-
-  # The /aws/vendedlogs/ prefix keeps Step Functions logging inside the shared
-  # CloudWatch Logs resource policy size limit
-  name              = "/aws/vendedlogs/states/${local.state_machine_name}"
-  retention_in_days = var.cloudwatch_logs_retention_in_days
-
-  tags = var.tags
-}
-
 data "aws_iam_policy_document" "state_machine_assume" {
   count = var.create_step_functions ? 1 : 0
 
@@ -246,26 +232,65 @@ resource "aws_iam_role_policy" "state_machine" {
   policy = data.aws_iam_policy_document.state_machine[0].json
 }
 
-resource "aws_sfn_state_machine" "compaction" {
-  count = var.create_step_functions ? 1 : 0
+# The module owns the state machine and its execution log group. It defaults
+# the log group name to /aws/vendedlogs/states/<name>, the prefix that keeps
+# Step Functions logging inside the shared CloudWatch Logs resource policy size
+# limit. Vended execution logs carry no payload secrets, so no customer-managed
+# key is set; leave that to the consumer's account-level CloudWatch encryption
+# policy.
+#
+# The IAM role stays in this file instead of being created by the module. The
+# module builds its own trust policy and cannot express the aws:SourceAccount /
+# aws:SourceArn conditions above that guard the "*"-scoped log-delivery grants.
+# With use_existing_role the module creates no IAM at all, so the role, its
+# policy and its trust policy are untouched by the refactor
+module "step_function" {
+  source  = "terraform-aws-modules/step-functions/aws"
+  version = "5.1.1"
+
+  create = var.create_step_functions
 
   name       = local.state_machine_name
-  role_arn   = aws_iam_role.state_machine[0].arn
+  type       = "STANDARD"
   definition = local.state_machine_definition
 
-  logging_configuration {
-    log_destination        = "${aws_cloudwatch_log_group.state_machine[0].arn}:*"
+  create_role       = false
+  use_existing_role = true
+  role_arn          = var.create_step_functions ? aws_iam_role.state_machine[0].arn : ""
+
+  cloudwatch_log_group_retention_in_days = var.cloudwatch_logs_retention_in_days
+
+  logging_configuration = {
     include_execution_data = true
     level                  = "ALL"
   }
 
-  tracing_configuration {
-    enabled = true
+  # Passing xray is what switches on the module's tracing_configuration block.
+  # With use_existing_role it attaches no policy; the role policy above already
+  # carries the X-Ray statement
+  service_integrations = {
+    xray = {
+      xray = true
+    }
   }
 
   tags = var.tags
 
+  # Step Functions checks the role's log-delivery permissions when the state
+  # machine is created, so the role policy has to exist first
   depends_on = [aws_iam_role_policy.state_machine]
+}
+
+# Both resources carry over into the module unchanged. The IAM role and its
+# policy are not moved: the module does not manage them
+moved {
+  from = aws_sfn_state_machine.compaction[0]
+  to   = module.step_function.aws_sfn_state_machine.this[0]
+}
+
+moved {
+  from = aws_cloudwatch_log_group.state_machine[0]
+  to   = module.step_function.aws_cloudwatch_log_group.sfn[0]
 }
 
 data "aws_iam_policy_document" "events_assume" {
@@ -286,7 +311,7 @@ data "aws_iam_policy_document" "events_start_execution" {
 
   statement {
     actions   = ["states:StartExecution"]
-    resources = [aws_sfn_state_machine.compaction[0].arn]
+    resources = [module.step_function.state_machine_arn]
   }
 }
 
@@ -322,7 +347,7 @@ resource "aws_cloudwatch_event_target" "state_machine" {
   count = var.create_step_functions ? 1 : 0
 
   rule     = aws_cloudwatch_event_rule.state_machine[0].name
-  arn      = aws_sfn_state_machine.compaction[0].arn
+  arn      = module.step_function.state_machine_arn
   role_arn = aws_iam_role.events[0].arn
   input    = local.schedule_input
 }

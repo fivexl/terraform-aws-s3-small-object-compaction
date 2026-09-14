@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Step Functions state machine and its execution log group are now created by [`terraform-aws-modules/step-functions/aws`](https://registry.terraform.io/modules/terraform-aws-modules/step-functions/aws) pinned to `5.1.1`, instead of hand-rolled `aws_sfn_state_machine` / `aws_cloudwatch_log_group` resources ([#5](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/5)). Section 5 of the FivexL module standardisation guide requires a verified registry module where one exists, and the Lambda functions in this module already follow that rule. The state-machine IAM role and its policy stay in this module and are handed to the step-functions module with `use_existing_role`: the module builds its own trust policy and cannot express the `aws:SourceAccount` / `aws:SourceArn` conditions added for [#7](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/7). No IAM resource is created, destroyed or changed
+- **`aws` provider floor raised from `>= 6.0` to `>= 6.28`**, required by the step-functions module
+
+### Upgrade notes
+
+`moved` blocks carry the state machine and its log group into the module, so
+neither is replaced, and IAM is untouched. Expect a plan with one in-place
+update, a `Name` tag the module adds to the state machine, and no other drift.
+
 ### Fixed
 
 - Compaction is now idempotent. Both compact handlers wrote their merged output to a fixed path under `/tmp` in append mode and never removed it. Lambda reuses warm execution environments with `/tmp` intact, so re-running a date appended the day's data onto the previous run's file and uploaded an object with the content doubled, a retry after a timeout appended onto the partial file, and a long backlog filled the disk. The output is now a fresh temp file per run, truncated on open and removed afterwards, so re-running a date overwrites instead of appending ([#7](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/7))
