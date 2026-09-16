@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Distributed Map child tasks were still denied `sts:AssumeRole` after v0.3.1. Children run as Express executions and present the `express:<state machine name>/<map label>:<uuid>:<uuid>` execution ARN as `aws:SourceArn`, which the trust-policy condition did not allow. The condition now allows all four ARN shapes Step Functions can present for this state machine (`stateMachine`, `execution`, `mapRun`, `express`), each still scoped to this state machine and account, verified with the IAM policy simulator including wrong-name and wrong-account probes ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
+- The role's `states:DescribeExecution` / `states:StopExecution` grant for child executions now names the `execution:` and `express:` ARN shapes those executions actually have, instead of `stateMachine:<name>:*`, which matched neither ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
+
+### Added
+
+- `sfn_child_execution_type` (`EXPRESS` | `STANDARD`, default `EXPRESS`): the Distributed Map child execution type was hardcoded to `EXPRESS`, which caps each date prefix at 5 minutes total regardless of `compact_lambda_timeout`. `STANDARD` lifts that ceiling for large backlogs ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
+- `sfn_tolerated_failure_count` and `sfn_tolerated_failure_percentage`: let a Distributed Map run tolerate some failed dates instead of failing the whole execution on the first one, after other dates have already written output. Both unset by default, which keeps the Step Functions behaviour of zero tolerated failures ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
+
+### Changed
+
+- The Lambda invoke retry in the state machine now also retries `Lambda.Unknown` and `States.Timeout`, so a date whose compaction times out is retried instead of failing the run. Safe since v0.3.0 made compaction idempotent ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
+- `lambda_ephemeral_storage_size` documents the sizing rule: a single date prefix's merged bytes are staged in `/tmp`, so the value must exceed the largest day under any one prefix
+
 ## [0.3.1] - 2026-09-16
 
 ### Fixed

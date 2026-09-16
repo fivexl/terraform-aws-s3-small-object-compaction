@@ -3,15 +3,32 @@ locals {
   # Constructed instead of referenced so the role policy can point at the state
   # machine without a circular dependency (the Distributed Map starts child
   # executions of its own state machine)
-  state_machine_arn = "arn:${data.aws_partition.current.partition}:states:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:stateMachine:${local.state_machine_name}"
+  states_arn_prefix = "arn:${data.aws_partition.current.partition}:states:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}"
+  state_machine_arn = "${local.states_arn_prefix}:stateMachine:${local.state_machine_name}"
+
+  # Every ARN shape Step Functions can present for this one state machine as
+  # aws:SourceArn when it assumes the role: the state machine itself (parent
+  # execution), Standard executions, the Map Run, and Express executions (the
+  # Distributed Map children). Allowing only a subset denies whichever caller
+  # presents the missing shape, which is how v0.3.0 and v0.3.1 broke the Map
+  state_machine_source_arns = [
+    local.state_machine_arn,
+    "${local.states_arn_prefix}:execution:${local.state_machine_name}:*",
+    "${local.states_arn_prefix}:mapRun:${local.state_machine_name}/*",
+    "${local.states_arn_prefix}:express:${local.state_machine_name}/*",
+  ]
 
   lambda_invoke_retry = [
     {
+      # Timeouts are retried too: compaction is idempotent, so a re-run of a
+      # date that timed out overwrites its partial output instead of appending
       ErrorEquals = [
         "Lambda.ServiceException",
         "Lambda.AWSLambdaException",
         "Lambda.SdkClientException",
         "Lambda.TooManyRequestsException",
+        "Lambda.Unknown",
+        "States.Timeout",
       ]
       IntervalSeconds = 1
       MaxAttempts     = 3
@@ -33,12 +50,14 @@ locals {
         Next       = "ForEachS3Prefix"
         OutputPath = "$.Payload"
       }
-      ForEachS3Prefix = {
+      # Tolerated-failure keys are only emitted when set: Step Functions
+      # rejects a null value, and omitting them keeps its default of zero
+      ForEachS3Prefix = merge({
         Type = "Map"
         ItemProcessor = {
           ProcessorConfig = {
             Mode          = "DISTRIBUTED"
-            ExecutionType = "EXPRESS"
+            ExecutionType = var.sfn_child_execution_type
           }
           StartAt = "CompactFilesInPrefix"
           States = {
@@ -68,7 +87,10 @@ locals {
             "Key.$"    = "$.s3_locations_key"
           }
         }
-      }
+        },
+        var.sfn_tolerated_failure_count == null ? {} : { ToleratedFailureCount = var.sfn_tolerated_failure_count },
+        var.sfn_tolerated_failure_percentage == null ? {} : { ToleratedFailurePercentage = var.sfn_tolerated_failure_percentage },
+      )
     }
   })
 }
@@ -147,17 +169,10 @@ data "aws_iam_policy_document" "state_machine_assume" {
       values   = [data.aws_caller_identity.current.account_id]
     }
 
-    # The parent execution assumes the role with the state machine ARN. The
-    # Distributed Map starts its child executions with the Map Run ARN,
-    # mapRun:<state machine name>/<map label>:<uuid>, so that shape has to be
-    # allowed too or every child is denied at start
     condition {
       test     = "ArnLike"
       variable = "aws:SourceArn"
-      values = [
-        local.state_machine_arn,
-        "arn:${data.aws_partition.current.partition}:states:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:mapRun:${local.state_machine_name}/*",
-      ]
+      values   = local.state_machine_source_arns
     }
   }
 }
@@ -188,10 +203,15 @@ data "aws_iam_policy_document" "state_machine" {
     resources = [local.state_machine_arn]
   }
 
+  # Child executions of the Distributed Map: execution: ARNs for STANDARD
+  # children, express: ARNs for EXPRESS children
   statement {
-    sid       = "ManageDistributedMapChildExecutions"
-    actions   = ["states:DescribeExecution", "states:StopExecution"]
-    resources = ["${local.state_machine_arn}:*"]
+    sid     = "ManageDistributedMapChildExecutions"
+    actions = ["states:DescribeExecution", "states:StopExecution"]
+    resources = [
+      "${local.states_arn_prefix}:execution:${local.state_machine_name}:*",
+      "${local.states_arn_prefix}:express:${local.state_machine_name}/*",
+    ]
   }
 
   # CloudWatch Logs delivery for Step Functions supports only "*" resources
