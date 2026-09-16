@@ -147,10 +147,17 @@ data "aws_iam_policy_document" "state_machine_assume" {
       values   = [data.aws_caller_identity.current.account_id]
     }
 
+    # The parent execution assumes the role with the state machine ARN. The
+    # Distributed Map starts its child executions with the Map Run ARN,
+    # mapRun:<state machine name>/<map label>:<uuid>, so that shape has to be
+    # allowed too or every child is denied at start
     condition {
       test     = "ArnLike"
       variable = "aws:SourceArn"
-      values   = [local.state_machine_arn]
+      values = [
+        local.state_machine_arn,
+        "arn:${data.aws_partition.current.partition}:states:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:mapRun:${local.state_machine_name}/*",
+      ]
     }
   }
 }
