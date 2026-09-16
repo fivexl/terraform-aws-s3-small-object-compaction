@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Distributed Map child executions could not assume the state-machine role, which made the Step Functions variant of v0.3.0 unusable: every execution failed at the `ForEachS3Prefix` map with `States.ExceedToleratedFailureThreshold` and the compact Lambda never ran. The `aws:SourceArn` trust-policy condition added in v0.3.0 allowed only the `stateMachine:` ARN, but Step Functions starts the children of a Distributed Map with the Map Run ARN, `mapRun:<state machine name>/<map label>:<uuid>`. The condition now allows both, still scoped to this state machine and account. Trust-policy update only, no resource replacement ([#10](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/10))
+
 ## [0.3.0] - 2026-09-14
 
 ### Changed
