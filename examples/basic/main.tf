@@ -54,7 +54,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target" {
 
 module "s3_small_object_compaction" {
   source  = "fivexl/s3-small-object-compaction/aws"
-  version = ">= 0.3.1"
+  version = ">= 0.3.2"
 
   source_s3_uri = "s3://${aws_s3_bucket.source.id}/data/"
   target_s3_uri = "s3://${aws_s3_bucket.target.id}/compacted/"
