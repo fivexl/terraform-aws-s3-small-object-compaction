@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-16
+
 ### Fixed
 
 - Distributed Map child tasks were still denied `sts:AssumeRole` after v0.3.1. Children run as Express executions and present the `express:<state machine name>/<map label>:<uuid>:<uuid>` execution ARN as `aws:SourceArn`, which the trust-policy condition did not allow. The condition now allows all four ARN shapes Step Functions can present for this state machine (`stateMachine`, `execution`, `mapRun`, `express`), each still scoped to this state machine and account, verified with the IAM policy simulator including wrong-name and wrong-account probes ([#13](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/13))
