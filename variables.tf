@@ -108,7 +108,7 @@ variable "compact_lambda_timeout" {
 }
 
 variable "lambda_ephemeral_storage_size" {
-  description = "Ephemeral storage (/tmp) in MB for the compaction Lambdas. Must fit a full day of merged objects"
+  description = "Ephemeral storage (/tmp) in MB for the compaction Lambdas, 512 to 10240. The merged bytes of a single date prefix are staged in /tmp before upload, so this must exceed the largest day of source data under any one prefix, or that date fails mid-write with 'No space left on device'"
   type        = number
   default     = 2048
 }
@@ -117,6 +117,34 @@ variable "sfn_max_concurrency" {
   description = "Maximum concurrent child executions of the Distributed Map"
   type        = number
   default     = 100
+}
+
+variable "sfn_child_execution_type" {
+  description = "Execution type of the Distributed Map child workflows. EXPRESS caps each date prefix at 5 minutes total regardless of compact_lambda_timeout, which a busy date on a large source cannot meet. STANDARD lifts that ceiling at Standard-workflow pricing"
+  type        = string
+  default     = "EXPRESS"
+
+  validation {
+    condition     = contains(["EXPRESS", "STANDARD"], var.sfn_child_execution_type)
+    error_message = "sfn_child_execution_type must be EXPRESS or STANDARD."
+  }
+}
+
+variable "sfn_tolerated_failure_count" {
+  description = "Number of failed date prefixes the Distributed Map tolerates before the whole execution fails. Unset keeps the Step Functions default of zero, where one failed date fails the run after other dates have already written their output"
+  type        = number
+  default     = null
+}
+
+variable "sfn_tolerated_failure_percentage" {
+  description = "Percentage (0-100) of failed date prefixes the Distributed Map tolerates before the whole execution fails. Unset keeps the Step Functions default of zero. If both count and percentage are set the run fails when either is exceeded"
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.sfn_tolerated_failure_percentage == null || (var.sfn_tolerated_failure_percentage >= 0 && var.sfn_tolerated_failure_percentage <= 100)
+    error_message = "sfn_tolerated_failure_percentage must be between 0 and 100."
+  }
 }
 
 variable "cloudwatch_logs_retention_in_days" {
