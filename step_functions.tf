@@ -6,17 +6,6 @@ locals {
   states_arn_prefix = "arn:${data.aws_partition.current.partition}:states:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}"
   state_machine_arn = "${local.states_arn_prefix}:stateMachine:${local.state_machine_name}"
 
-  # Every ARN shape Step Functions can present for this one state machine as
-  # aws:SourceArn when it assumes the role: the state machine itself (parent
-  # execution), Standard executions, the Map Run, and Express executions (the
-  # Distributed Map children). Allowing only a subset denies whichever caller
-  # presents the missing shape, which is how v0.3.0 and v0.3.1 broke the Map
-  state_machine_source_arns = [
-    local.state_machine_arn,
-    "${local.states_arn_prefix}:execution:${local.state_machine_name}:*",
-    "${local.states_arn_prefix}:mapRun:${local.state_machine_name}/*",
-    "${local.states_arn_prefix}:express:${local.state_machine_name}/*",
-  ]
 
   lambda_invoke_retry = [
     {
@@ -161,18 +150,21 @@ data "aws_iam_policy_document" "state_machine_assume" {
     }
 
     # Confused-deputy guard. The role carries "*"-scoped log-delivery grants
-    # that cannot be narrowed, so only this account's compaction state machine
-    # may assume it, not any state machine a principal with iam:PassRole creates
+    # that cannot be narrowed, so a cross-account principal must not be able
+    # to hand it to a state machine of their own.
+    #
+    # IfExists, not StringEquals: when Step Functions obtains task credentials
+    # for Distributed Map child executions it sends no aws:SourceAccount or
+    # aws:SourceArn context at all, and an absent key fails a strict condition
+    # whatever values it lists. Three releases of ARN patterns (stateMachine,
+    # mapRun, execution, express) could not fix that. IfExists enforces the
+    # account check whenever the key is present and passes when the service
+    # omits it. No aws:SourceArn condition for the same reason: it would only
+    # deny again on whichever call path omits or reshapes the key
     condition {
-      test     = "StringEquals"
+      test     = "StringEqualsIfExists"
       variable = "aws:SourceAccount"
       values   = [data.aws_caller_identity.current.account_id]
-    }
-
-    condition {
-      test     = "ArnLike"
-      variable = "aws:SourceArn"
-      values   = local.state_machine_source_arns
     }
   }
 }
