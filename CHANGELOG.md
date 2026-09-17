@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-17
+
 ### Fixed
 
 - Distributed Map child executions were still denied `sts:AssumeRole` under v0.3.1 and v0.3.2. Step Functions requests child-task credentials without the confused-deputy context keys, and an absent key fails a strict `StringEquals` / `ArnLike` condition regardless of the values listed, so the `mapRun:` pattern (v0.3.1) and the four-form list (v0.3.2) could never match. The trust policy now uses `StringEqualsIfExists` on `aws:SourceAccount`: enforced whenever the key is present, tolerant when the service omits it. The `aws:SourceArn` condition is removed for the same reason. Trust-policy update only, no resource replacement ([#16](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/16))
