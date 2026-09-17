@@ -32,6 +32,8 @@ Both variants can be triggered on an **EventBridge schedule** (disabled by defau
 
 The handlers read the source and destination URIs from the invocation event, so the scheduled payload is not a permission boundary. The Lambda execution roles are therefore granted `s3:ListBucket` and `s3:GetObject` only on the key prefix of `source_s3_uri`, and an invocation that points at another prefix fails with `AccessDenied`. For that reason `source_s3_uri` must include a key prefix; a bare `s3://bucket/` is rejected at plan time. The functions never delete source objects.
 
+The state-machine role trusts `states.amazonaws.com` with an `aws:SourceAccount` check written as `StringEqualsIfExists`. Step Functions omits the confused-deputy context keys when it requests task credentials for Distributed Map child executions, so a strict condition denies every child; `IfExists` enforces the account check whenever the key is present and passes when the service omits it. A cross-account principal cannot hand the role to a state machine of their own, while a same-account principal already holding `iam:PassRole` on the role can, which is the posture of the upstream solution and of CDK-generated Distributed Map roles.
+
 ## Usage
 
 See [examples/basic](./examples/basic).
