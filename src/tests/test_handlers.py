@@ -130,7 +130,7 @@ def test_merge_sends_encryption_header_when_configured(monkeypatch, tmp_path):
         monkeypatch.setattr(module, "TARGET_SSE_ALGORITHM", "AES256")
         calls = []
 
-        def upload_file(path, bucket, key, ExtraArgs=None):
+        def upload_file(path, bucket, key, ExtraArgs=None, calls=calls):
             calls.append(ExtraArgs)
 
         monkeypatch.setattr(module.s3, "upload_file", upload_file)
