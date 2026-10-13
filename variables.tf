@@ -24,6 +24,17 @@ variable "target_s3_uri" {
   }
 }
 
+variable "target_sse_algorithm" {
+  description = "Server-side encryption requested on every object the functions write to the target bucket, the compacted output and the Distributed Map manifest. Null sends no encryption header and relies on the bucket default. Set AES256 when the target bucket policy denies uploads without an x-amz-server-side-encryption header: a bucket default encrypts the object but does not satisfy that condition"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.target_sse_algorithm == null || var.target_sse_algorithm == "AES256"
+    error_message = "target_sse_algorithm must be AES256 or null. SSE-KMS needs key grants the module does not create."
+  }
+}
+
 variable "previous_days" {
   description = "How many days back to compact. Each daily date prefix in the range is compacted into one object"
   type        = number

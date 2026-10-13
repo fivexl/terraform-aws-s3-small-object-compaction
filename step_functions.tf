@@ -99,6 +99,8 @@ module "list_lambda" {
 
   source_path = "${path.module}/src/distributed_map_list"
 
+  environment_variables = local.lambda_environment
+
   tracing_mode          = "Active"
   attach_tracing_policy = true
 
@@ -126,6 +128,8 @@ module "compact_lambda" {
   ephemeral_storage_size = var.lambda_ephemeral_storage_size
 
   source_path = "${path.module}/src/distributed_map_compact"
+
+  environment_variables = local.lambda_environment
 
   tracing_mode          = "Active"
   attach_tracing_policy = true

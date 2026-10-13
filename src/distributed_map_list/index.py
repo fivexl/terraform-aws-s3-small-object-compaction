@@ -1,11 +1,20 @@
 """Builds the JSONL manifest of source/destination prefix pairs consumed by the Distributed Map."""
 
 import json
+import os
 from datetime import datetime, timedelta
 
 import boto3
 
 s3_client = boto3.client("s3")
+
+# Encryption header for every write to the target bucket. A bucket default does
+# not satisfy a policy that requires the header, so it is explicit when set
+TARGET_SSE_ALGORITHM = os.environ.get("TARGET_SSE_ALGORITHM")
+
+
+def put_args():
+    return {"ServerSideEncryption": TARGET_SSE_ALGORITHM} if TARGET_SSE_ALGORITHM else {}
 
 
 def get_dates_in_range(duration, date_format):
@@ -43,6 +52,7 @@ def lambda_handler(event, context):
         Body=jsonl_content,
         Bucket=bucket_name,
         Key=key,
+        **put_args(),
     )
     print(f"JSONL file uploaded to s3://{bucket_name}/{key}")
 

@@ -15,6 +15,8 @@ module "standalone_compact_lambda" {
 
   source_path = "${path.module}/src/standalone_function_compact"
 
+  environment_variables = local.lambda_environment
+
   tracing_mode          = "Active"
   attach_tracing_policy = true
 

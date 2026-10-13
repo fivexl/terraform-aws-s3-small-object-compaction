@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `target_sse_algorithm` (`AES256` | null, default null): the functions sent no `x-amz-server-side-encryption` header on the compacted output or the Distributed Map manifest, so a target bucket whose policy denies unencrypted uploads rejected every write even with default encryption on, because the bucket default encrypts the object without satisfying the header condition. When set, every write carries the header; null keeps the previous behaviour
+
 ## [0.3.3] - 2026-09-17
 
 ### Fixed

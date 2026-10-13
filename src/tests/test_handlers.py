@@ -109,3 +109,15 @@ def test_merge_removes_temp_file_when_upload_fails(monkeypatch, tmp_path):
         raise AssertionError("expected the upload failure to propagate")
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_put_args_is_empty_without_configured_algorithm(monkeypatch):
+    for module in (standalone, dm_list, dm_compact):
+        monkeypatch.setattr(module, "TARGET_SSE_ALGORITHM", None)
+        assert module.put_args() == {}
+
+
+def test_put_args_carries_configured_algorithm(monkeypatch):
+    for module in (standalone, dm_list, dm_compact):
+        monkeypatch.setattr(module, "TARGET_SSE_ALGORITHM", "AES256")
+        assert module.put_args() == {"ServerSideEncryption": "AES256"}

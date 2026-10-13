@@ -109,6 +109,7 @@ See [examples/basic](./examples/basic).
 | <a name="input_standalone_lambda_timeout"></a> [standalone\_lambda\_timeout](#input\_standalone\_lambda\_timeout) | Timeout in seconds for the standalone compaction Lambda | `number` | `900` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to all resources created by this module | `map(string)` | `{}` | no |
 | <a name="input_target_s3_uri"></a> [target\_s3\_uri](#input\_target\_s3\_uri) | S3 URI where compacted objects are written, e.g. s3://my-bucket/compacted/. Date prefixes are appended to it | `string` | n/a | yes |
+| <a name="input_target_sse_algorithm"></a> [target\_sse\_algorithm](#input\_target\_sse\_algorithm) | Server-side encryption requested on every object the functions write to the target bucket, the compacted output and the Distributed Map manifest. Null sends no encryption header and relies on the bucket default. Set AES256 when the target bucket policy denies uploads without an x-amz-server-side-encryption header: a bucket default encrypts the object but does not satisfy that condition | `string` | `null` | no |
 
 ## Outputs
 
