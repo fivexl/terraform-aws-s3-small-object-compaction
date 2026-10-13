@@ -121,3 +121,22 @@ def test_put_args_carries_configured_algorithm(monkeypatch):
     for module in (standalone, dm_list, dm_compact):
         monkeypatch.setattr(module, "TARGET_SSE_ALGORITHM", "AES256")
         assert module.put_args() == {"ServerSideEncryption": "AES256"}
+
+
+def test_merge_sends_encryption_header_when_configured(monkeypatch, tmp_path):
+    for module in (dm_compact, standalone):
+        objects = {"logs/x/a.log": b"aaa"}
+        _fake_s3(monkeypatch, module, objects, [])
+        monkeypatch.setattr(module, "TARGET_SSE_ALGORITHM", "AES256")
+        calls = []
+
+        def upload_file(path, bucket, key, ExtraArgs=None):
+            calls.append(ExtraArgs)
+
+        monkeypatch.setattr(module.s3, "upload_file", upload_file)
+        temp_dir = str(tmp_path / module.__name__) + "/"
+        Path(temp_dir).mkdir()
+
+        module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", temp_dir)
+
+        assert calls == [{"ServerSideEncryption": "AES256"}]

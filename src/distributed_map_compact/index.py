@@ -62,7 +62,13 @@ def merge_objects_from_s3(source_bucket, source_prefix, target_bucket, target_pr
             for obj in objects:
                 f.write(get_object_from_s3(source_bucket, obj["Key"]))
 
-        s3.upload_file(out_path, target_bucket, out_key, ExtraArgs=put_args() or None)
+        # Same call as before when no algorithm is configured; ExtraArgs only
+        # when there is something to send
+        extra_args = put_args()
+        if extra_args:
+            s3.upload_file(out_path, target_bucket, out_key, ExtraArgs=extra_args)
+        else:
+            s3.upload_file(out_path, target_bucket, out_key)
     finally:
         os.remove(out_path)
 
