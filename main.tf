@@ -27,6 +27,10 @@ locals {
     duration           = var.previous_days
   })
 
+  # Explicit encryption header on every write when configured; a bucket default
+  # encrypts the object but does not satisfy a policy that requires the header
+  lambda_environment = var.target_sse_algorithm == null ? {} : { TARGET_SSE_ALGORITHM = var.target_sse_algorithm }
+
   # Statements shared by every function: read the source prefix, write the
   # compacted output (the list function also writes its prefix manifest there).
   # The handlers take s3_source_uri from the invocation event, so IAM, not the

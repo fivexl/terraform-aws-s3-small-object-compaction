@@ -9,6 +9,14 @@ import boto3
 
 s3 = boto3.client("s3")
 
+# Encryption header for every write to the target bucket. A bucket default does
+# not satisfy a policy that requires the header, so it is explicit when set
+TARGET_SSE_ALGORITHM = os.environ.get("TARGET_SSE_ALGORITHM")
+
+
+def put_args():
+    return {"ServerSideEncryption": TARGET_SSE_ALGORITHM} if TARGET_SSE_ALGORITHM else {}
+
 
 def list_objects_in_s3(bucket, prefix):
     contents = []
@@ -54,7 +62,13 @@ def merge_objects_from_s3(source_bucket, source_prefix, target_bucket, target_pr
             for obj in objects:
                 f.write(get_object_from_s3(source_bucket, obj["Key"]))
 
-        s3.upload_file(out_path, target_bucket, out_key)
+        # Same call as before when no algorithm is configured; ExtraArgs only
+        # when there is something to send
+        extra_args = put_args()
+        if extra_args:
+            s3.upload_file(out_path, target_bucket, out_key, ExtraArgs=extra_args)
+        else:
+            s3.upload_file(out_path, target_bucket, out_key)
     finally:
         os.remove(out_path)
 
