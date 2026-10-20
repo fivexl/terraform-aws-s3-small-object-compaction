@@ -31,6 +31,14 @@ locals {
   # encrypts the object but does not satisfy a policy that requires the header
   lambda_environment = var.target_sse_algorithm == null ? {} : { TARGET_SSE_ALGORITHM = var.target_sse_algorithm }
 
+  # The compaction functions also learn the merge mode, and get pyarrow from the
+  # AWS SDK for pandas layer in parquet mode. Both stay unset in concat mode so
+  # existing deployments see no configuration change
+  parquet = var.file_format == "parquet"
+
+  compact_lambda_environment = merge(local.lambda_environment, local.parquet ? { FILE_FORMAT = "parquet" } : {})
+  compact_lambda_layers      = local.parquet ? [data.aws_ssm_parameter.aws_sdk_pandas_layer[0].insecure_value] : null
+
   # Statements shared by every function: read the source prefix, write the
   # compacted output (the list function also writes its prefix manifest there).
   # The handlers take s3_source_uri from the invocation event, so IAM, not the
@@ -56,5 +64,26 @@ locals {
       actions   = ["s3:PutObject"]
       resources = [local.target_bucket_arn, "${local.target_bucket_arn}/*"]
     }
+  }
+}
+
+# Published by AWS for every commercial Region, Python version and architecture.
+# The functions use the Lambda default architecture, x86_64
+data "aws_ssm_parameter" "aws_sdk_pandas_layer" {
+  count = local.parquet ? 1 : 0
+
+  name = "/aws/service/aws-sdk-pandas/${var.aws_sdk_pandas_version}/${replace(var.lambda_runtime, "python", "py")}/x86_64/layer-arn"
+}
+
+# pyarrow and the layer need far more than the 128 MB the per-prefix function
+# defaults to: at 128 MB a merge of one day of flow logs was OOM-killed, and the
+# layer documentation names 512 MB as the floor
+check "parquet_lambda_memory" {
+  assert {
+    condition = !local.parquet || (
+      (!var.create_standalone_lambda || var.standalone_lambda_memory_size >= 512) &&
+      (!var.create_step_functions || var.compact_lambda_memory_size >= 512)
+    )
+    error_message = "file_format = \"parquet\" loads pyarrow in the compaction functions: set standalone_lambda_memory_size and compact_lambda_memory_size to at least 512, or the functions can run out of memory."
   }
 }

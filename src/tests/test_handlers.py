@@ -5,10 +5,15 @@ distinct module names via importlib instead of a plain import.
 """
 
 import importlib.util
+import io
 import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
 
 # The handlers create a boto3 client at import time, which needs a region but
 # no credentials
@@ -140,3 +145,92 @@ def test_merge_sends_encryption_header_when_configured(monkeypatch, tmp_path):
         module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", temp_dir)
 
         assert calls == [{"ServerSideEncryption": "AES256"}]
+
+
+def _parquet(columns, row_group_size=None, compression="gzip"):
+    buf = io.BytesIO()
+    pq.write_table(pa.table(columns), buf, row_group_size=row_group_size, compression=compression)
+    return buf.getvalue()
+
+
+def test_is_container_format():
+    parquet = _parquet({"a": [1]})
+    assert all(module.is_container_format(parquet) for module in (standalone, dm_compact))
+    assert standalone.is_container_format(b"Obj\x01rest-of-avro")
+    assert standalone.is_container_format(b"ORC...postscript ORC\x17")
+    assert not standalone.is_container_format(b"\x1f\x8b\x08 gzip member")
+    assert not standalone.is_container_format(b"ORCID,name\n1,a\n")
+
+
+def test_concat_refuses_parquet_and_uploads_nothing(monkeypatch, tmp_path):
+    """Byte concatenation of Parquet writes a file no reader can open, so the run must fail instead."""
+    for module in (dm_compact, standalone):
+        objects = {"logs/x/a.parquet": _parquet({"a": [1]}), "logs/x/b.parquet": _parquet({"a": [2]})}
+        uploads = []
+        _fake_s3(monkeypatch, module, objects, uploads)
+        monkeypatch.setattr(module, "FILE_FORMAT", "concat")
+        temp_dir = tmp_path / module.__name__
+        temp_dir.mkdir()
+
+        with pytest.raises(ValueError, match="file_format"):
+            module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{temp_dir}/")
+
+        assert uploads == []
+        assert list(temp_dir.iterdir()) == []
+
+
+def test_parquet_merge_keeps_every_row_in_one_row_group(monkeypatch, tmp_path):
+    for module in (dm_compact, standalone):
+        first = {"srcaddr": ["10.0.0.1", "10.0.0.2"], "bytes": [100, 200]}
+        objects = {
+            # Two row groups in the first file, coalesced with the second file's one
+            "logs/x/00/a.log.parquet": _parquet(first, row_group_size=1),
+            "logs/x/01/b.log.parquet": _parquet({"srcaddr": ["10.0.1.1"], "bytes": [300]}),
+        }
+        uploads = []
+        _fake_s3(monkeypatch, module, objects, uploads)
+        monkeypatch.setattr(module, "FILE_FORMAT", "parquet")
+        temp_dir = tmp_path / module.__name__
+        temp_dir.mkdir()
+
+        module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{temp_dir}/")
+
+        [(key, content)] = uploads
+        assert key == "compacted/x/compacted-x.log.parquet"
+        merged = pq.ParquetFile(io.BytesIO(content))
+        assert merged.read().to_pydict() == {
+            "srcaddr": ["10.0.0.1", "10.0.0.2", "10.0.1.1"],
+            "bytes": [100, 200, 300],
+        }
+        assert merged.metadata.num_row_groups == 1
+        # The source codec is kept rather than replaced by the pyarrow default
+        assert merged.metadata.row_group(0).column(0).compression == "GZIP"
+        assert list(temp_dir.iterdir()) == []
+
+
+def test_parquet_merge_refuses_mixed_schemas(monkeypatch, tmp_path):
+    objects = {
+        "logs/x/a.parquet": _parquet({"bytes": [1]}),
+        "logs/x/b.parquet": _parquet({"bytes": ["one"]}),
+    }
+    uploads = []
+    _fake_s3(monkeypatch, dm_compact, objects, uploads)
+    monkeypatch.setattr(dm_compact, "FILE_FORMAT", "parquet")
+
+    with pytest.raises(ValueError, match="different schema"):
+        dm_compact.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/")
+
+    assert uploads == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_parquet_merge_refuses_a_non_parquet_object(monkeypatch, tmp_path):
+    objects = {"logs/x/a.parquet": _parquet({"bytes": [1]}), "logs/x/_SUCCESS": b""}
+    uploads = []
+    _fake_s3(monkeypatch, standalone, objects, uploads)
+    monkeypatch.setattr(standalone, "FILE_FORMAT", "parquet")
+
+    with pytest.raises(ValueError, match="_SUCCESS is not a readable Parquet file"):
+        standalone.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/")
+
+    assert uploads == []
