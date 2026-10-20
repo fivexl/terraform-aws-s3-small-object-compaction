@@ -73,17 +73,18 @@ data "aws_ssm_parameter" "aws_sdk_pandas_layer" {
   count = local.parquet ? 1 : 0
 
   name = "/aws/service/aws-sdk-pandas/${var.aws_sdk_pandas_version}/${replace(var.lambda_runtime, "python", "py")}/x86_64/layer-arn"
-}
 
-# pyarrow and the layer need far more than the 128 MB the per-prefix function
-# defaults to: at 128 MB a merge of one day of flow logs was OOM-killed, and the
-# layer documentation names 512 MB as the floor
-check "parquet_lambda_memory" {
-  assert {
-    condition = !local.parquet || (
-      (!var.create_standalone_lambda || var.standalone_lambda_memory_size >= 512) &&
-      (!var.create_step_functions || var.compact_lambda_memory_size >= 512)
-    )
-    error_message = "file_format = \"parquet\" loads pyarrow in the compaction functions: set standalone_lambda_memory_size and compact_lambda_memory_size to at least 512, or the functions can run out of memory."
+  # pyarrow and the layer need far more than the 128 MB the per-prefix function
+  # defaults to: at 128 MB a merge of one day of flow logs was OOM-killed, and
+  # the layer documentation names 512 MB as the floor. A precondition rather than
+  # a check block, which the tfsec in CI cannot parse
+  lifecycle {
+    precondition {
+      condition = (
+        (!var.create_standalone_lambda || var.standalone_lambda_memory_size >= 512) &&
+        (!var.create_step_functions || var.compact_lambda_memory_size >= 512)
+      )
+      error_message = "file_format = \"parquet\" loads pyarrow in the compaction functions: set standalone_lambda_memory_size and compact_lambda_memory_size to at least 512, or the functions run out of memory."
+    }
   }
 }

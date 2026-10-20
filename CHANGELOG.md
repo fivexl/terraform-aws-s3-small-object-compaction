@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `file_format` (`concat` | `parquet`, default `concat`): `parquet` merges a prefix by rewriting the row groups of its objects into one Parquet file, keeping the source schema and codec, and refuses objects whose schema differs. pyarrow comes from the AWS SDK for pandas managed Lambda layer, which is attached to the compaction functions only in this mode. A `check` block warns when the compaction functions have less than 512 MB of memory ([#21](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/21))
+- `file_format` (`concat` | `parquet`, default `concat`): `parquet` merges a prefix by rewriting the row groups of its objects into one Parquet file, keeping the source schema and codec, and refuses objects whose schema differs. pyarrow comes from the AWS SDK for pandas managed Lambda layer, which is attached to the compaction functions only in this mode. The plan fails when the compaction functions have less than 512 MB of memory ([#21](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/21))
 - `aws_sdk_pandas_version` (default `3.17.1`): selects the layer version, resolved from the SSM public parameter `/aws/service/aws-sdk-pandas/<version>/<python version>/x86_64/layer-arn`
 
 ### Upgrade notes
