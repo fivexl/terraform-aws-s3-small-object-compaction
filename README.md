@@ -74,10 +74,10 @@ See [examples/basic](./examples/basic).
 
 | Name | Source | Version |
 |------|--------|---------|
-| <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
-| <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
-| <a name="module_pyarrow_layer"></a> [pyarrow\_layer](#module\_pyarrow\_layer) | terraform-aws-modules/lambda/aws | 8.8.0 |
-| <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.8.0 |
+| <a name="module_compact_lambda"></a> [compact\_lambda](#module\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.12.0 |
+| <a name="module_list_lambda"></a> [list\_lambda](#module\_list\_lambda) | terraform-aws-modules/lambda/aws | 8.12.0 |
+| <a name="module_pyarrow_layer"></a> [pyarrow\_layer](#module\_pyarrow\_layer) | terraform-aws-modules/lambda/aws | 8.12.0 |
+| <a name="module_standalone_compact_lambda"></a> [standalone\_compact\_lambda](#module\_standalone\_compact\_lambda) | terraform-aws-modules/lambda/aws | 8.12.0 |
 | <a name="module_step_function"></a> [step\_function](#module\_step\_function) | terraform-aws-modules/step-functions/aws | 5.1.1 |
 
 ## Resources

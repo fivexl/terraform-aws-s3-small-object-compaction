@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Python floor raised to 3.14.** `lambda_runtime` defaults to `python3.14` instead of `python3.12`, and the plan fails for anything older. The handlers, the tests (CI runs Python 3.14) and ruff (`target-version = "py314"`) already assumed 3.14, so no handler code changes; the parquet-only python3.12 check is gone because the floor covers it
+- **Python floor raised to 3.14.** `lambda_runtime` defaults to `python3.14` instead of `python3.12`, and the plan fails for anything older. The handlers, the tests (CI runs Python 3.14) and ruff (`target-version = "py314"`) already assumed 3.14, so the only handler change is the staged output file, now a `NamedTemporaryFile(delete_on_close=False)` instead of `mkstemp` with a manual remove; the parquet-only python3.12 check is gone because the floor covers it
+- The nested `terraform-aws-modules/lambda/aws` module moves from `8.8.0` to `8.12.0`. The releases in between only add optional inputs and outputs, all unset here, and make `package.py` show pip's stderr when a build fails. The `aws` provider floor stays at `>= 6.28`
 
 ### Security
 

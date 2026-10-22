@@ -103,7 +103,7 @@ locals {
 # symlinks). Every library left is a load-time dependency of pyarrow itself
 module "pyarrow_layer" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "8.8.0"
+  version = "8.12.0"
 
   create       = local.parquet
   create_layer = true
