@@ -34,6 +34,24 @@ The handlers read the source and destination URIs from the invocation event, so 
 
 The state-machine role trusts `states.amazonaws.com` with an `aws:SourceAccount` check written as `StringEqualsIfExists`. Step Functions omits the confused-deputy context keys when it requests task credentials for Distributed Map child executions, so a strict condition denies every child; `IfExists` enforces the account check whenever the key is present and passes when the service omits it. A cross-account principal cannot hand the role to a state machine of their own, while a same-account principal already holding `iam:PassRole` on the role can, which is the posture of the upstream solution and of CDK-generated Distributed Map roles.
 
+## File formats
+
+By default (`file_format = "concat"`) the objects of a date prefix are merged by appending their bytes, which yields a valid file only for formats that survive concatenation: plain text, JSON Lines, header-less CSV and gzip. Parquet, ORC and Avro objects are detected by their magic bytes and the prefix fails with an error, rather than being written out as a file no reader can open.
+
+`file_format = "parquet"` rewrites the row groups of every source object into a single Parquet file per prefix, keeping the source schema and compression codec and coalescing small row groups into ones of about 64 MB of in-memory data. A prefix whose objects have differing schemas, or which holds a non-Parquet object, fails instead of being merged. pyarrow comes from the [AWS SDK for pandas](https://aws-sdk-pandas.readthedocs.io/en/stable/install.html#aws-lambda-layer) managed Lambda layer, resolved from its SSM public parameter for `aws_sdk_pandas_version` and `lambda_runtime`, so the default path stays dependency-free. Give the compaction functions at least 512 MB (`compact_lambda_memory_size` defaults to 128); the plan fails otherwise. This fits Parquet VPC Flow Logs:
+
+```hcl
+module "flow_logs_compaction" {
+  source = "fivexl/s3-small-object-compaction/aws"
+
+  source_s3_uri = "s3://my-log-archive/AWSLogs/111111111111/vpcflowlogs/us-east-2/"
+  target_s3_uri = "s3://my-log-archive/compacted/vpcflowlogs/111111111111/"
+
+  file_format                = "parquet"
+  compact_lambda_memory_size = 512
+}
+```
+
 ## Usage
 
 See [examples/basic](./examples/basic).
@@ -81,17 +99,20 @@ See [examples/basic](./examples/basic).
 | [aws_iam_policy_document.state_machine_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
+| [aws_ssm_parameter.aws_sdk_pandas_layer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ssm_parameter) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_aws_sdk_pandas_version"></a> [aws\_sdk\_pandas\_version](#input\_aws\_sdk\_pandas\_version) | Version of the AWS SDK for pandas managed Lambda layer attached when file\_format is parquet. The layer ARN is read from the SSM public parameter /aws/service/aws-sdk-pandas/<version>/<python version>/x86\_64/layer-arn, so the version must be published for lambda\_runtime in the deployment Region | `string` | `"3.17.1"` | no |
 | <a name="input_cloudwatch_logs_retention_in_days"></a> [cloudwatch\_logs\_retention\_in\_days](#input\_cloudwatch\_logs\_retention\_in\_days) | Retention in days for the Lambda and Step Functions CloudWatch log groups | `number` | `14` | no |
 | <a name="input_compact_lambda_memory_size"></a> [compact\_lambda\_memory\_size](#input\_compact\_lambda\_memory\_size) | Memory size in MB for the per-prefix compaction Lambda used by Step Functions | `number` | `128` | no |
 | <a name="input_compact_lambda_timeout"></a> [compact\_lambda\_timeout](#input\_compact\_lambda\_timeout) | Timeout in seconds for the per-prefix compaction Lambda used by Step Functions | `number` | `300` | no |
 | <a name="input_create_standalone_lambda"></a> [create\_standalone\_lambda](#input\_create\_standalone\_lambda) | Create the standalone compaction Lambda variant that processes all prefixes in a single invocation | `bool` | `true` | no |
 | <a name="input_create_step_functions"></a> [create\_step\_functions](#input\_create\_step\_functions) | Create the Step Functions variant that compacts prefixes in parallel with a Distributed Map | `bool` | `true` | no |
 | <a name="input_date_format"></a> [date\_format](#input\_date\_format) | Python strftime format of the date prefixes under the source URI, e.g. %Y/%m/%d for year/month/day | `string` | `"%Y/%m/%d"` | no |
+| <a name="input_file_format"></a> [file\_format](#input\_file\_format) | How the objects of a prefix are merged. concat appends their bytes, which is valid only for formats that survive concatenation: plain text, JSON Lines, header-less CSV and gzip. Parquet, ORC and Avro sources are refused in this mode instead of being written out corrupt. parquet rewrites the row groups of every source object into one Parquet file and attaches the AWS SDK for pandas managed Lambda layer, which provides pyarrow, to the compaction functions; give them at least 512 MB of memory | `string` | `"concat"` | no |
 | <a name="input_lambda_ephemeral_storage_size"></a> [lambda\_ephemeral\_storage\_size](#input\_lambda\_ephemeral\_storage\_size) | Ephemeral storage (/tmp) in MB for the compaction Lambdas, 512 to 10240. The merged bytes of a single date prefix are staged in /tmp before upload, so this must exceed the largest day of source data under any one prefix, or that date fails mid-write with 'No space left on device' | `number` | `2048` | no |
 | <a name="input_lambda_runtime"></a> [lambda\_runtime](#input\_lambda\_runtime) | Python runtime used by all Lambda functions | `string` | `"python3.12"` | no |
 | <a name="input_list_lambda_memory_size"></a> [list\_lambda\_memory\_size](#input\_list\_lambda\_memory\_size) | Memory size in MB for the prefix-listing Lambda used by Step Functions | `number` | `128` | no |

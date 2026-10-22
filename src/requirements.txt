@@ -1,3 +1,7 @@
 # boto3 ships in the Lambda runtime; listed here only so CI can import the
 # handlers for linting and unit tests
 boto3
+# Provided at runtime by the AWS SDK for pandas layer in parquet mode. Pinned to
+# the pyarrow that layer ships (aws-sdk-pandas 3.17.1) so the tests run against
+# what the Lambda loads
+pyarrow==24.0.0
