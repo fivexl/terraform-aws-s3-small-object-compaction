@@ -2,8 +2,8 @@ data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {
-  # Plan-time checks of the parquet mode, which has no resource of its own to
-  # carry them. Preconditions rather than check blocks, which the tfsec in CI
+  # Plan-time check of the parquet mode, which has no resource of its own to
+  # carry it. A precondition rather than a check block, which the tfsec in CI
   # cannot parse
   lifecycle {
     # pyarrow needs far more than the 128 MB the per-prefix function defaults
@@ -14,13 +14,6 @@ data "aws_region" "current" {
         (!var.create_step_functions || var.compact_lambda_memory_size >= 512)
       )
       error_message = "file_format = \"parquet\" loads pyarrow in the compaction functions: set standalone_lambda_memory_size and compact_lambda_memory_size to at least 512, or the functions run out of memory."
-    }
-
-    # pyarrow publishes only manylinux_2_28 wheels, which need glibc 2.28.
-    # python3.11 and older run on Amazon Linux 2, which has glibc 2.26
-    precondition {
-      condition     = !local.parquet || try(tonumber(trimprefix(var.lambda_runtime, "python3.")) >= 12, false)
-      error_message = "file_format = \"parquet\" needs lambda_runtime python3.12 or later: the pyarrow layer is built for Amazon Linux 2023, and older Python runtimes run on Amazon Linux 2."
     }
   }
 }
