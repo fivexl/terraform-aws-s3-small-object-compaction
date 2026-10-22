@@ -13,12 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `file_format` (`concat` | `parquet`, default `concat`): `parquet` merges a prefix by rewriting the row groups of its objects into one Parquet file, keeping the source schema and codec, and refuses objects whose schema differs. pyarrow comes from the AWS SDK for pandas managed Lambda layer, which is attached to the compaction functions only in this mode. The plan fails when the compaction functions have less than 512 MB of memory ([#21](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/21))
-- `aws_sdk_pandas_version` (default `3.17.1`): selects the layer version, resolved from the SSM public parameter `/aws/service/aws-sdk-pandas/<version>/<python version>/x86_64/layer-arn`
+- `file_format` (`concat` | `parquet`, default `concat`): `parquet` merges a prefix by rewriting the row groups of its objects into one Parquet file, keeping the source schema and codec, and refuses objects whose schema differs. pyarrow comes from a Lambda layer the module builds at apply time from the PyPI wheel, created and attached to the compaction functions only in this mode. The plan fails when the compaction functions have less than 512 MB of memory ([#21](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/21))
+
+### Changed
+
+- **Python floor raised to 3.14.** `lambda_runtime` defaults to `python3.14` instead of `python3.12`, and the plan fails for anything older. The handlers, the tests (CI runs Python 3.14) and ruff (`target-version = "py314"`) already assumed 3.14, so the only handler change is the staged output file, now a `NamedTemporaryFile(delete_on_close=False)` instead of `mkstemp` with a manual remove; the parquet-only python3.12 check is gone because the floor covers it
+- The nested `terraform-aws-modules/lambda/aws` module moves from `8.8.0` to `8.12.0`. The releases in between only add optional inputs and outputs, all unset here, and make `package.py` show pip's stderr when a build fails. The `aws` provider floor stays at `>= 6.28`
+
+### Security
+
+- The parquet mode does not use the AWS SDK for pandas managed layer. Its latest release, 3.17.1, bundles certifi 2026.7.22, whose CA store still trusts the `emSign ECC Root CA - G3` root behind eight compromised eMudhra intermediates ([GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2), critical), and the layer can only be patched by a new aws-sdk-pandas release. The module's own layer holds pyarrow alone, which has no dependencies, so it carries no certifi; boto3 falls back to the CA bundle of botocore in the Lambda runtime
 
 ### Upgrade notes
 
-With the default `file_format = "concat"` the plan shows only the code update of the two compaction functions; no environment variable or layer is added.
+With the default `file_format = "concat"` and `lambda_runtime` unset, the plan shows an in-place update of all three functions, `python3.12` to `python3.14`, plus the code update of the two compaction functions; no environment variable or layer is added. A consumer that sets `lambda_runtime` to `python3.13` or older must raise it to `python3.14` or later.
+
+With `file_format = "parquet"` the machine that runs `terraform apply` needs `python3`, `pip` and access to PyPI to build the layer, a 35 MB zip.
 
 ## [0.3.4] - 2026-10-13
 

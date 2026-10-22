@@ -53,7 +53,7 @@ variable "date_format" {
 }
 
 variable "file_format" {
-  description = "How the objects of a prefix are merged. concat appends their bytes, which is valid only for formats that survive concatenation: plain text, JSON Lines, header-less CSV and gzip. Parquet, ORC and Avro sources are refused in this mode instead of being written out corrupt. parquet rewrites the row groups of every source object into one Parquet file and attaches the AWS SDK for pandas managed Lambda layer, which provides pyarrow, to the compaction functions; give them at least 512 MB of memory"
+  description = "How the objects of a prefix are merged. concat appends their bytes, which is valid only for formats that survive concatenation: plain text, JSON Lines, header-less CSV and gzip. Parquet, ORC and Avro sources are refused in this mode instead of being written out corrupt. parquet rewrites the row groups of every source object into one Parquet file, with pyarrow from a Lambda layer the module builds from PyPI at apply time, so the applying machine needs python3, pip and access to PyPI. parquet needs at least 512 MB of memory for the compaction functions"
   type        = string
   default     = "concat"
 
@@ -61,12 +61,6 @@ variable "file_format" {
     condition     = contains(["concat", "parquet"], var.file_format)
     error_message = "file_format must be concat or parquet."
   }
-}
-
-variable "aws_sdk_pandas_version" {
-  description = "Version of the AWS SDK for pandas managed Lambda layer attached when file_format is parquet. The layer ARN is read from the SSM public parameter /aws/service/aws-sdk-pandas/<version>/<python version>/x86_64/layer-arn, so the version must be published for lambda_runtime in the deployment Region"
-  type        = string
-  default     = "3.17.1"
 }
 
 variable "create_standalone_lambda" {
@@ -94,9 +88,14 @@ variable "schedule_expression" {
 }
 
 variable "lambda_runtime" {
-  description = "Python runtime used by all Lambda functions"
+  description = "Python runtime used by all Lambda functions, python3.14 or later"
   type        = string
-  default     = "python3.12"
+  default     = "python3.14"
+
+  validation {
+    condition     = try(tonumber(trimprefix(var.lambda_runtime, "python3.")) >= 14, false)
+    error_message = "lambda_runtime must be python3.14 or later."
+  }
 }
 
 variable "standalone_lambda_memory_size" {

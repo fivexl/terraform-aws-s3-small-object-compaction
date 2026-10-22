@@ -126,27 +126,25 @@ def merge_objects_from_s3(source_bucket, source_prefix, target_bucket, target_pr
     suffixes = "".join(pathlib.Path(first_name).suffixes)
     out_key = target_prefix + "/" + target_prefix.replace("/", "-") + suffixes
 
-    # A fresh, empty file per run that is always removed afterwards. Lambda reuses
-    # warm containers with /tmp intact, so appending to a fixed path would glue
-    # this run's data onto whatever a previous or timed-out run left behind, and
-    # a long backlog would fill the disk
-    fd, out_path = tempfile.mkstemp(dir=temp_path, suffix=suffixes)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            if FILE_FORMAT == "parquet":
-                write_parquet(source_bucket, objects, f)
-            else:
-                concat_objects(source_bucket, objects, f)
+    # A fresh, empty file per run, removed when the block exits even if the
+    # merge or upload fails. Lambda reuses warm containers with /tmp intact, so
+    # appending to a fixed path would glue this run's data onto whatever a
+    # previous or timed-out run left behind, and a long backlog would fill the disk
+    with tempfile.NamedTemporaryFile("wb", dir=temp_path, suffix=suffixes, delete_on_close=False) as f:
+        if FILE_FORMAT == "parquet":
+            write_parquet(source_bucket, objects, f)
+        else:
+            concat_objects(source_bucket, objects, f)
+        # Closed but not yet deleted, so the upload reads the complete file
+        f.close()
 
         # Same call as before when no algorithm is configured; ExtraArgs only
         # when there is something to send
         extra_args = put_args()
         if extra_args:
-            s3.upload_file(out_path, target_bucket, out_key, ExtraArgs=extra_args)
+            s3.upload_file(f.name, target_bucket, out_key, ExtraArgs=extra_args)
         else:
-            s3.upload_file(out_path, target_bucket, out_key)
-    finally:
-        os.remove(out_path)
+            s3.upload_file(f.name, target_bucket, out_key)
 
     print(f"Merged {len(objects)} objects into s3://{target_bucket}/{out_key}")
 
