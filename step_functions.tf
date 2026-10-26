@@ -86,7 +86,7 @@ locals {
 
 module "list_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "8.8.0"
+  version = "8.12.0"
 
   create = var.create_step_functions
 
@@ -114,7 +114,7 @@ module "list_lambda" {
 
 module "compact_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "8.8.0"
+  version = "8.12.0"
 
   create = var.create_step_functions
 

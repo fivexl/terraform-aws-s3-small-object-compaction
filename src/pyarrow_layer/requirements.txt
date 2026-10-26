@@ -1,0 +1,4 @@
+# The one package of the Lambda layer the module builds when file_format is
+# parquet. pyarrow declares no dependencies, so the layer holds nothing else.
+# src/requirements.txt includes this file, so the tests run against the same pin
+pyarrow==24.0.0
