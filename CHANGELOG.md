@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-26
+
 ### Fixed
 
 - Parquet, ORC and Avro sources were merged by byte concatenation and written out as one object no reader can open, while the run reported success. In the default mode such objects are now detected by their magic bytes and the prefix fails with an error, and nothing is uploaded ([#21](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/21))
