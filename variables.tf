@@ -88,13 +88,13 @@ variable "schedule_expression" {
 }
 
 variable "lambda_runtime" {
-  description = "Python runtime used by all Lambda functions, python3.14 or later"
+  description = "Python runtime used by all Lambda functions: python3.12, python3.13 or python3.14. The handlers need 3.12 for NamedTemporaryFile(delete_on_close), and the pyarrow pinned for the parquet layer publishes wheels up to 3.14"
   type        = string
   default     = "python3.14"
 
   validation {
-    condition     = try(tonumber(trimprefix(var.lambda_runtime, "python3.")) >= 14, false)
-    error_message = "lambda_runtime must be python3.14 or later."
+    condition     = contains(["python3.12", "python3.13", "python3.14"], var.lambda_runtime)
+    error_message = "lambda_runtime must be python3.12, python3.13 or python3.14."
   }
 }
 

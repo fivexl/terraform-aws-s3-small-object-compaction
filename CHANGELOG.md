@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Python floor raised to 3.14.** `lambda_runtime` defaults to `python3.14` instead of `python3.12`, and the plan fails for anything older. The handlers, the tests (CI runs Python 3.14) and ruff (`target-version = "py314"`) already assumed 3.14, so the only handler change is the staged output file, now a `NamedTemporaryFile(delete_on_close=False)` instead of `mkstemp` with a manual remove; the parquet-only python3.12 check is gone because the floor covers it
+- `lambda_runtime` defaults to `python3.14` instead of `python3.12` and is validated to `python3.12`, `python3.13` or `python3.14`. The floor is 3.12 because the compaction handlers now stage their output in a `NamedTemporaryFile(delete_on_close=False)` instead of `mkstemp` with a manual remove, which also removes the parquet-only python3.12 check; the cap is 3.14 because the pyarrow pinned for the parquet layer publishes no wheel for newer runtimes, so the layer build would fail there
 - The nested `terraform-aws-modules/lambda/aws` module moves from `8.8.0` to `8.12.0`. The releases in between only add optional inputs and outputs, all unset here, and make `package.py` show pip's stderr when a build fails. The `aws` provider floor stays at `>= 6.28`
 
 ### Security
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-With the default `file_format = "concat"` and `lambda_runtime` unset, the plan shows an in-place update of all three functions, `python3.12` to `python3.14`, plus the code update of the two compaction functions; no environment variable or layer is added. A consumer that sets `lambda_runtime` to `python3.13` or older must raise it to `python3.14` or later.
+With the default `file_format = "concat"` and `lambda_runtime` unset, the plan shows an in-place update of all three functions, `python3.12` to `python3.14`, plus the code update of the two compaction functions; no environment variable or layer is added. A consumer that pins `lambda_runtime` to `python3.12` or `python3.13` sees only the code update.
 
 With `file_format = "parquet"` the machine that runs `terraform apply` needs `python3`, `pip` and access to PyPI to build the layer, a 35 MB zip.
 
