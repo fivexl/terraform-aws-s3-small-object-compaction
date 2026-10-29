@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Two state-machine executions started within the same second wrote their Distributed Map manifest to the same key, `locations_<timestamp>.jsonl`, so the second overwrote the first and both Maps compacted the prefix listed last while the other prefix was silently skipped. The key now also carries the request id of the listing invocation. A target bucket policy that restricts the functions' writes by key pattern must allow `locations_*.jsonl`, which it did before
+
 ### Added
 
 - `fetch_concurrency` (1 to 64, default 16): the compaction functions fetched source objects one at a time, so at the ~65 ms one GET takes a date prefix of more than about 13,000 objects could not finish inside the 900 s Lambda maximum, however much memory or timeout it was given. The objects of a prefix are now fetched by a pool of that many threads and written in listing order, so the compacted object is byte-identical to the sequential merge in both `concat` and `parquet` mode. Bodies waiting to be written are capped at 32 MB of memory, and at twice the pool size in objects, so a prefix of large objects is fetched a few at a time; a failed fetch fails the prefix as before and the fetches queued behind it are cancelled. 1 restores the previous behaviour
 
 ### Upgrade notes
 
-The plan shows an in-place update of the two compaction functions: the new `FETCH_CONCURRENCY` environment variable plus the code update. The listing function is unchanged.
+The plan shows an in-place update of the two compaction functions: the new `FETCH_CONCURRENCY` environment variable plus the code update. The listing function gets the code update of the manifest key.
 
 ## [0.4.0] - 2026-10-26
 

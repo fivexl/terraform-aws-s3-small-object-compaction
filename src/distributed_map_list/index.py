@@ -26,6 +26,17 @@ def ensure_trailing_slash(uri):
     return uri if uri.endswith("/") else uri + "/"
 
 
+def manifest_key(now, request_id):
+    """Manifest key unique per invocation.
+
+    A key of the timestamp alone is shared by two executions started within
+    the same second, so the second manifest overwrites the first and both
+    Distributed Maps compact the prefix listed last. The request id of the
+    listing invocation tells them apart; the timestamp stays for humans
+    """
+    return f"locations_{now:%Y%m%d%H%M%S}_{request_id}.jsonl"
+
+
 def lambda_handler(event, context):
     print(event)
 
@@ -45,8 +56,7 @@ def lambda_handler(event, context):
     jsonl_content = "".join(json.dumps(location) + "\n" for location in s3_locations)
 
     bucket_name = destination_uri.replace("s3://", "").split("/")[0]
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    key = f"locations_{timestamp}.jsonl"
+    key = manifest_key(datetime.now(), context.aws_request_id)
 
     s3_client.put_object(
         Body=jsonl_content,
