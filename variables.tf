@@ -140,6 +140,17 @@ variable "lambda_ephemeral_storage_size" {
   default     = 2048
 }
 
+variable "fetch_concurrency" {
+  description = "How many source objects the compaction functions fetch at once, 1 to 64. Objects are written in listing order whatever the value, so the compacted object is the same as a sequential merge. 1 fetches one object at a time, which at the ~65 ms one GET takes caps a date prefix at about 13,000 objects inside the 900 s Lambda maximum; the default lifts that past 100,000. Fetched bodies waiting to be written are capped at 32 MB of memory, so a prefix of large objects is fetched a few at a time"
+  type        = number
+  default     = 16
+
+  validation {
+    condition     = var.fetch_concurrency >= 1 && var.fetch_concurrency <= 64 && floor(var.fetch_concurrency) == var.fetch_concurrency
+    error_message = "fetch_concurrency must be a whole number from 1 to 64."
+  }
+}
+
 variable "sfn_max_concurrency" {
   description = "Maximum concurrent child executions of the Distributed Map"
   type        = number
