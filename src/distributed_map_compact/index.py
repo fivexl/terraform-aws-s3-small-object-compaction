@@ -4,10 +4,23 @@ import json
 import os
 import pathlib
 import tempfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
+from botocore.config import Config
 
-s3 = boto3.client("s3")
+# How many source objects are fetched at once. Set from the module's
+# fetch_concurrency variable; 1 fetches one object at a time
+FETCH_CONCURRENCY = max(1, int(os.environ.get("FETCH_CONCURRENCY", "1")))
+
+# Fetched bodies waiting to be written are capped at this many bytes, and at
+# twice FETCH_CONCURRENCY objects, so a prefix of large objects does not buffer
+# a whole day in memory. One object is always in flight, whatever its size
+FETCH_WINDOW_BYTES = 32 * 1024 * 1024
+
+# botocore's default pool of 10 connections would serialise fetches beyond it
+s3 = boto3.client("s3", config=Config(max_pool_connections=max(10, FETCH_CONCURRENCY)))
 
 # Encryption header for every write to the target bucket. A bucket default does
 # not satisfy a policy that requires the header, so it is explicit when set
@@ -50,6 +63,46 @@ def get_object_from_s3(bucket, key):
     return response["Body"].read()
 
 
+def fetch_objects(bucket, objects):
+    """Yield (object, body) in listing order, fetching up to FETCH_CONCURRENCY objects at once.
+
+    Fetches run ahead of the writer only while the window holds fewer than
+    twice FETCH_CONCURRENCY objects and under FETCH_WINDOW_BYTES, so memory
+    stays bounded whatever the object sizes. A failed fetch raises at its turn
+    in the order, and the fetches still queued behind it are cancelled.
+    """
+    if FETCH_CONCURRENCY == 1:
+        for obj in objects:
+            yield obj, get_object_from_s3(bucket, obj["Key"])
+        return
+
+    pending = iter(objects)
+    lookahead = next(pending, None)
+    window, window_bytes = deque(), 0
+    pool = ThreadPoolExecutor(max_workers=FETCH_CONCURRENCY)
+    try:
+        while lookahead is not None or window:
+            # An empty window always admits the next object, so one too large
+            # for the byte budget is still fetched, on its own
+            while lookahead is not None and (
+                not window
+                or (
+                    len(window) < 2 * FETCH_CONCURRENCY
+                    and window_bytes + lookahead.get("Size", 0) <= FETCH_WINDOW_BYTES
+                )
+            ):
+                window.append((lookahead, pool.submit(get_object_from_s3, bucket, lookahead["Key"])))
+                window_bytes += lookahead.get("Size", 0)
+                lookahead = next(pending, None)
+
+            obj, future = window.popleft()
+            data = future.result()
+            window_bytes -= obj.get("Size", 0)
+            yield obj, data
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def is_container_format(data):
     """True for formats whose header or footer indexes the whole file, so byte concatenation corrupts them."""
     parquet = data[:4] == b"PAR1" and data[-4:] == b"PAR1"
@@ -60,8 +113,7 @@ def is_container_format(data):
 
 
 def concat_objects(source_bucket, objects, out_file):
-    for obj in objects:
-        data = get_object_from_s3(source_bucket, obj["Key"])
+    for obj, data in fetch_objects(source_bucket, objects):
         if is_container_format(data):
             raise ValueError(
                 f"s3://{source_bucket}/{obj['Key']} is Parquet, ORC or Avro, which byte concatenation "
@@ -79,10 +131,10 @@ def write_parquet(source_bucket, objects, out_file):
     writer = None
     pending, pending_bytes = [], 0
     try:
-        for obj in objects:
+        for obj, data in fetch_objects(source_bucket, objects):
             uri = f"s3://{source_bucket}/{obj['Key']}"
             try:
-                source = pq.ParquetFile(pa.BufferReader(get_object_from_s3(source_bucket, obj["Key"])))
+                source = pq.ParquetFile(pa.BufferReader(data))
             except pa.ArrowInvalid as err:
                 raise ValueError(f"{uri} is not a readable Parquet file: {err}") from err
 
