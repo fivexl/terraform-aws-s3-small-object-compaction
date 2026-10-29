@@ -47,13 +47,18 @@ locals {
   # encrypts the object but does not satisfy a policy that requires the header
   lambda_environment = var.target_sse_algorithm == null ? {} : { TARGET_SSE_ALGORITHM = var.target_sse_algorithm }
 
-  # The compaction functions also learn the merge mode, and get pyarrow from the
-  # layer below in parquet mode. Both stay unset in concat mode so existing
-  # deployments see no configuration change
+  # The compaction functions also learn how many objects to fetch at once and
+  # the merge mode, and get pyarrow from the layer below in parquet mode. The
+  # mode stays unset in concat mode so existing deployments see no
+  # configuration change for it
   parquet = var.file_format == "parquet"
 
-  compact_lambda_environment = merge(local.lambda_environment, local.parquet ? { FILE_FORMAT = "parquet" } : {})
-  compact_lambda_layers      = local.parquet ? [module.pyarrow_layer.lambda_layer_arn] : null
+  compact_lambda_environment = merge(
+    local.lambda_environment,
+    { FETCH_CONCURRENCY = tostring(var.fetch_concurrency) },
+    local.parquet ? { FILE_FORMAT = "parquet" } : {},
+  )
+  compact_lambda_layers = local.parquet ? [module.pyarrow_layer.lambda_layer_arn] : null
 
   # Statements shared by every function: read the source prefix, write the
   # compacted output (the list function also writes its prefix manifest there).

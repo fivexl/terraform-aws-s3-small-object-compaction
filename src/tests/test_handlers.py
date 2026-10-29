@@ -8,6 +8,8 @@ import importlib.util
 import io
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +20,9 @@ import pytest
 # The handlers create a boto3 client at import time, which needs a region but
 # no credentials
 os.environ.setdefault("AWS_DEFAULT_REGION", "eu-central-1")
+# Every merge test below runs through the thread pool, as a deployment does;
+# the sequential path has a test of its own
+os.environ.setdefault("FETCH_CONCURRENCY", "4")
 
 SRC_DIR = Path(__file__).parent.parent
 
@@ -114,6 +119,91 @@ def test_merge_removes_temp_file_when_upload_fails(monkeypatch, tmp_path):
         raise AssertionError("expected the upload failure to propagate")
 
     assert list(tmp_path.iterdir()) == []
+
+
+class _Fetches:
+    """A get_object stand-in that records how many fetches overlap."""
+
+    def __init__(self, delay_for=lambda key: 0.0, fail_on=None):
+        self.in_flight, self.peak, self.started = 0, 0, []
+        self.lock = threading.Lock()
+        self.delay_for, self.fail_on = delay_for, fail_on
+
+    def __call__(self, bucket, key):
+        with self.lock:
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+            self.started.append(key)
+        try:
+            time.sleep(self.delay_for(key))
+            if key == self.fail_on:
+                raise RuntimeError(f"fetch of {key} failed")
+            return key.encode()
+        finally:
+            with self.lock:
+                self.in_flight -= 1
+
+
+def test_fetch_objects_keeps_listing_order_while_fetching_concurrently(monkeypatch):
+    for module in (dm_compact, standalone):
+        monkeypatch.setattr(module, "FETCH_CONCURRENCY", 4)
+        objects = [{"Key": f"logs/x/{i:03d}.log", "Size": 1} for i in range(40)]
+        # Later objects come back sooner, so listing order can only come from the writer
+        fetches = _Fetches(delay_for=lambda key: (40 - int(key[-7:-4])) / 2000)
+        monkeypatch.setattr(module, "get_object_from_s3", fetches)
+
+        merged = [data for _, data in module.fetch_objects("src", objects)]
+
+        assert merged == [obj["Key"].encode() for obj in objects]
+        assert 1 < fetches.peak <= 4
+
+
+def test_fetch_objects_bounds_buffered_bytes(monkeypatch):
+    """Objects too large to share the byte window are fetched one at a time, not a day's worth at once."""
+    monkeypatch.setattr(dm_compact, "FETCH_CONCURRENCY", 8)
+    monkeypatch.setattr(dm_compact, "FETCH_WINDOW_BYTES", 100)
+    objects = [{"Key": f"logs/x/{i}.log", "Size": 60} for i in range(12)]
+    fetches = _Fetches(delay_for=lambda key: 0.01)
+    monkeypatch.setattr(dm_compact, "get_object_from_s3", fetches)
+
+    merged = [data for _, data in dm_compact.fetch_objects("src", objects)]
+
+    assert merged == [obj["Key"].encode() for obj in objects]
+    assert fetches.peak == 1
+
+
+def test_fetch_objects_is_sequential_at_concurrency_one(monkeypatch):
+    for module in (dm_compact, standalone):
+        monkeypatch.setattr(module, "FETCH_CONCURRENCY", 1)
+        objects = [{"Key": f"logs/x/{i}.log"} for i in range(6)]
+        fetches = _Fetches(delay_for=lambda key: 0.005)
+        monkeypatch.setattr(module, "get_object_from_s3", fetches)
+
+        merged = [data for _, data in module.fetch_objects("src", objects)]
+
+        assert merged == [obj["Key"].encode() for obj in objects]
+        assert fetches.peak == 1
+        assert fetches.started == [obj["Key"] for obj in objects]
+
+
+def test_merge_fails_on_a_failed_fetch_and_uploads_nothing(monkeypatch, tmp_path):
+    for module in (dm_compact, standalone):
+        monkeypatch.setattr(module, "FETCH_CONCURRENCY", 4)
+        keys = [f"logs/x/{i:02d}.log" for i in range(40)]
+        uploads = []
+        _fake_s3(monkeypatch, module, dict.fromkeys(keys, b""), uploads)
+        fetches = _Fetches(delay_for=lambda key: 0.002, fail_on="logs/x/05.log")
+        monkeypatch.setattr(module, "get_object_from_s3", fetches)
+        temp_dir = tmp_path / module.__name__
+        temp_dir.mkdir()
+
+        with pytest.raises(RuntimeError, match="logs/x/05.log"):
+            module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{temp_dir}/")
+
+        assert uploads == []
+        assert list(temp_dir.iterdir()) == []
+        # The fetches queued behind the failure were cancelled rather than run to the end
+        assert len(fetches.started) < len(keys)
 
 
 def test_put_args_is_empty_without_configured_algorithm(monkeypatch):
