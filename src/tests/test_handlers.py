@@ -45,6 +45,14 @@ def test_ensure_trailing_slash():
     assert dm_list.ensure_trailing_slash("s3://bucket/prefix/") == "s3://bucket/prefix/"
 
 
+def test_manifest_key_differs_between_runs_started_in_the_same_second():
+    now = datetime(2026, 10, 28, 18, 9, 7)
+    first = dm_list.manifest_key(now, "0a1b2c3d-0000-4000-8000-000000000001")
+    second = dm_list.manifest_key(now, "0a1b2c3d-0000-4000-8000-000000000002")
+    assert first != second
+    assert first == "locations_20261028180907_0a1b2c3d-0000-4000-8000-000000000001.jsonl"
+
+
 def test_get_dates_in_range_length_and_bounds():
     dates = standalone.get_dates_in_range(3, "%Y/%m/%d")
     assert len(dates) == 3

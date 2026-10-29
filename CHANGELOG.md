@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Two state-machine executions started within the same second wrote their Distributed Map manifest to the same key, `locations_<timestamp>.jsonl`, so the second overwrote the first and both Maps compacted the prefix listed last while the other prefix was silently skipped. The key now also carries the request id of the listing invocation. A target bucket policy that restricts the functions' writes by key pattern must allow `locations_*.jsonl`, which it did before
+
 ## [0.4.0] - 2026-10-26
 
 ### Fixed
