@@ -1,0 +1,198 @@
+variable "name_prefix" {
+  description = "Prefix used for naming all resources created by this module"
+  type        = string
+  default     = "s3-object-compaction"
+}
+
+variable "source_s3_uri" {
+  description = "S3 URI holding the small objects to compact, e.g. s3://my-bucket/raw/. Date prefixes are appended to it. A key prefix is required: the Lambda IAM policies are scoped to it"
+  type        = string
+
+  validation {
+    condition     = can(regex("^s3://[^/]+/.+", var.source_s3_uri))
+    error_message = "source_s3_uri must be of the form s3://<bucket>/<prefix>. A bare bucket URI is rejected because the Lambda read permissions are scoped to the prefix."
+  }
+}
+
+variable "target_s3_uri" {
+  description = "S3 URI where compacted objects are written, e.g. s3://my-bucket/compacted/. Date prefixes are appended to it"
+  type        = string
+
+  validation {
+    condition     = startswith(var.target_s3_uri, "s3://")
+    error_message = "target_s3_uri must start with s3://"
+  }
+}
+
+variable "target_sse_algorithm" {
+  description = "Server-side encryption requested on every object the functions write to the target bucket, the compacted output and the Distributed Map manifest. Null sends no encryption header and relies on the bucket default. Set AES256 when the target bucket policy denies uploads without an x-amz-server-side-encryption header: a bucket default encrypts the object but does not satisfy that condition"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.target_sse_algorithm == null || var.target_sse_algorithm == "AES256"
+    error_message = "target_sse_algorithm must be AES256 or null. SSE-KMS needs key grants the module does not create."
+  }
+}
+
+variable "previous_days" {
+  description = "How many days back to compact. Each daily date prefix in the range is compacted into one object"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.previous_days >= 1
+    error_message = "previous_days must be at least 1."
+  }
+}
+
+variable "date_format" {
+  description = "Python strftime format of the date prefixes under the source URI, e.g. %Y/%m/%d for year/month/day"
+  type        = string
+  default     = "%Y/%m/%d"
+}
+
+variable "file_format" {
+  description = "How the objects of a prefix are merged. concat appends their bytes, which is valid only for formats that survive concatenation: plain text, JSON Lines, header-less CSV and gzip. Parquet, ORC and Avro sources are refused in this mode instead of being written out corrupt. parquet rewrites the row groups of every source object into one Parquet file, with pyarrow from a Lambda layer the module builds from PyPI at apply time, so the applying machine needs python3, pip and access to PyPI. parquet needs at least 512 MB of memory for the compaction functions"
+  type        = string
+  default     = "concat"
+
+  validation {
+    condition     = contains(["concat", "parquet"], var.file_format)
+    error_message = "file_format must be concat or parquet."
+  }
+}
+
+variable "create_standalone_lambda" {
+  description = "Create the standalone compaction Lambda variant that processes all prefixes in a single invocation"
+  type        = bool
+  default     = true
+}
+
+variable "create_step_functions" {
+  description = "Create the Step Functions variant that compacts prefixes in parallel with a Distributed Map"
+  type        = bool
+  default     = true
+}
+
+variable "schedule_enabled" {
+  description = "Enable the EventBridge schedules. Disabled by default, matching the upstream solution"
+  type        = bool
+  default     = false
+}
+
+variable "schedule_expression" {
+  description = "EventBridge schedule expression. Defaults to rate(previous_days days) when null"
+  type        = string
+  default     = null
+}
+
+variable "lambda_runtime" {
+  description = "Python runtime used by all Lambda functions: python3.12, python3.13 or python3.14. The handlers need 3.12 for NamedTemporaryFile(delete_on_close), and the pyarrow pinned for the parquet layer publishes wheels up to 3.14"
+  type        = string
+  default     = "python3.14"
+
+  validation {
+    condition     = contains(["python3.12", "python3.13", "python3.14"], var.lambda_runtime)
+    error_message = "lambda_runtime must be python3.12, python3.13 or python3.14."
+  }
+}
+
+variable "standalone_lambda_memory_size" {
+  description = "Memory size in MB for the standalone compaction Lambda"
+  type        = number
+  default     = 1024
+}
+
+variable "standalone_lambda_timeout" {
+  description = "Timeout in seconds for the standalone compaction Lambda"
+  type        = number
+  default     = 900
+}
+
+variable "list_lambda_memory_size" {
+  description = "Memory size in MB for the prefix-listing Lambda used by Step Functions"
+  type        = number
+  default     = 128
+}
+
+variable "list_lambda_timeout" {
+  description = "Timeout in seconds for the prefix-listing Lambda used by Step Functions"
+  type        = number
+  default     = 60
+}
+
+variable "compact_lambda_memory_size" {
+  description = "Memory size in MB for the per-prefix compaction Lambda used by Step Functions"
+  type        = number
+  default     = 128
+}
+
+variable "compact_lambda_timeout" {
+  description = "Timeout in seconds for the per-prefix compaction Lambda used by Step Functions"
+  type        = number
+  default     = 300
+}
+
+variable "lambda_ephemeral_storage_size" {
+  description = "Ephemeral storage (/tmp) in MB for the compaction Lambdas, 512 to 10240. The merged bytes of a single date prefix are staged in /tmp before upload, so this must exceed the largest day of source data under any one prefix, or that date fails mid-write with 'No space left on device'"
+  type        = number
+  default     = 2048
+}
+
+variable "fetch_concurrency" {
+  description = "How many source objects the compaction functions fetch at once, 1 to 64. Objects are written in listing order whatever the value, so the compacted object is the same as a sequential merge. 1 fetches one object at a time, which at the ~65 ms one GET takes caps a date prefix at about 13,000 objects inside the 900 s Lambda maximum; the default lifts that past 100,000. Fetched bodies waiting to be written are capped at 32 MB of memory, so a prefix of large objects is fetched a few at a time"
+  type        = number
+  default     = 16
+
+  validation {
+    condition     = var.fetch_concurrency >= 1 && var.fetch_concurrency <= 64 && floor(var.fetch_concurrency) == var.fetch_concurrency
+    error_message = "fetch_concurrency must be a whole number from 1 to 64."
+  }
+}
+
+variable "sfn_max_concurrency" {
+  description = "Maximum concurrent child executions of the Distributed Map"
+  type        = number
+  default     = 100
+}
+
+variable "sfn_child_execution_type" {
+  description = "Execution type of the Distributed Map child workflows. EXPRESS caps each date prefix at 5 minutes total regardless of compact_lambda_timeout, which a busy date on a large source cannot meet. STANDARD lifts that ceiling at Standard-workflow pricing"
+  type        = string
+  default     = "EXPRESS"
+
+  validation {
+    condition     = contains(["EXPRESS", "STANDARD"], var.sfn_child_execution_type)
+    error_message = "sfn_child_execution_type must be EXPRESS or STANDARD."
+  }
+}
+
+variable "sfn_tolerated_failure_count" {
+  description = "Number of failed date prefixes the Distributed Map tolerates before the whole execution fails. Unset keeps the Step Functions default of zero, where one failed date fails the run after other dates have already written their output"
+  type        = number
+  default     = null
+}
+
+variable "sfn_tolerated_failure_percentage" {
+  description = "Percentage (0-100) of failed date prefixes the Distributed Map tolerates before the whole execution fails. Unset keeps the Step Functions default of zero. If both count and percentage are set the run fails when either is exceeded"
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.sfn_tolerated_failure_percentage == null || (var.sfn_tolerated_failure_percentage >= 0 && var.sfn_tolerated_failure_percentage <= 100)
+    error_message = "sfn_tolerated_failure_percentage must be between 0 and 100."
+  }
+}
+
+variable "cloudwatch_logs_retention_in_days" {
+  description = "Retention in days for the Lambda and Step Functions CloudWatch log groups"
+  type        = number
+  default     = 14
+}
+
+variable "tags" {
+  description = "Tags applied to all resources created by this module"
+  type        = map(string)
+  default     = {}
+}
