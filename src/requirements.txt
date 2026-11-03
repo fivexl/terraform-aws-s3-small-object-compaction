@@ -1,6 +1,0 @@
-# boto3 ships in the Lambda runtime; listed here only so CI can import the
-# handlers for linting and unit tests
-boto3
-# The pyarrow the module packages into its Lambda layer in parquet mode, so the
-# tests run against what the functions load
--r pyarrow_layer/requirements.txt
