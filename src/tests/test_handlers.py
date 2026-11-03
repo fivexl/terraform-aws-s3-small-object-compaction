@@ -71,6 +71,17 @@ def test_get_dates_in_range_respects_format():
     assert dates == [(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")]
 
 
+def test_compact_handlers_retry_s3_throttling_adaptively():
+    # A pool of fetching Lambdas can exceed what one S3 prefix serves; S3 then
+    # answers SlowDown, and the default retry mode fails the prefix after 4
+    # attempts. The clients must back off and keep retrying instead
+    for module in (standalone, dm_compact):
+        retries = module.s3.meta.config.retries
+        assert retries["mode"] == "adaptive"
+        # botocore stores max_attempts as the total including the first try
+        assert retries["total_max_attempts"] == module.S3_RETRY_ATTEMPTS + 1 == 11
+
+
 def test_both_compact_handlers_share_merge_logic():
     for module in (standalone, dm_compact):
         assert callable(module.merge_objects_from_s3)

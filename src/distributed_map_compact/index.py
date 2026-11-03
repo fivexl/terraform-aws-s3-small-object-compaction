@@ -19,8 +19,20 @@ FETCH_CONCURRENCY = max(1, int(os.environ.get("FETCH_CONCURRENCY", "1")))
 # a whole day in memory. One object is always in flight, whatever its size
 FETCH_WINDOW_BYTES = 32 * 1024 * 1024
 
-# botocore's default pool of 10 connections would serialise fetches beyond it
-s3 = boto3.client("s3", config=Config(max_pool_connections=max(10, FETCH_CONCURRENCY)))
+# botocore's default pool of 10 connections would serialise fetches beyond it.
+# Concurrent fetches from many Lambdas at once can exceed what one S3 prefix
+# serves, and S3 then answers SlowDown; the default retry mode gives up after
+# 4 attempts with a short fixed backoff and the whole prefix fails. Adaptive
+# mode rate-limits the client when S3 pushes back and keeps retrying, so a
+# throttled fetch slows down instead of failing the prefix
+S3_RETRY_ATTEMPTS = 10
+s3 = boto3.client(
+    "s3",
+    config=Config(
+        max_pool_connections=max(10, FETCH_CONCURRENCY),
+        retries={"mode": "adaptive", "max_attempts": S3_RETRY_ATTEMPTS},
+    ),
+)
 
 # Encryption header for every write to the target bucket. A bucket default does
 # not satisfy a policy that requires the header, so it is explicit when set

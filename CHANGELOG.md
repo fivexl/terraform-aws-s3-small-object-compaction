@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- With `fetch_concurrency` above 1 and the Distributed Map running many prefixes at once, the compaction functions can ask one S3 prefix for more GETs per second than it serves, and S3 answers `SlowDown`. The S3 client used botocore's default retry mode, which gives up after 4 attempts with a short fixed backoff, so a throttled fetch failed its whole prefix and, past `sfn_tolerated_failure_count`, aborted the run. The client now uses botocore's adaptive retry mode with 10 attempts: it rate-limits itself when S3 pushes back and keeps retrying, so a throttled prefix slows down instead of failing. Lower `sfn_max_concurrency` or `fetch_concurrency` if a prefix is still throttled; the two multiply into the concurrent GETs one prefix receives
+
 ## [0.5.0] - 2026-10-29
 
 ### Fixed
