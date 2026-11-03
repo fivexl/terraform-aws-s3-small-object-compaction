@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-11-03
+## [0.5.2] - 2026-11-03
+
+0.5.1 is unusable: its tag was cut from a commit that dropped most of the module (every root `.tf` file, the README, the listing function, the CI config), so the registry serves a module with no Terraform in it. 0.5.2 is the same release with the tree restored ([#31](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/pull/31)). Pin `>= 0.5.2`.
 
 ### Fixed
 
