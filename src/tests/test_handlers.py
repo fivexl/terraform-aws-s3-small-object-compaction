@@ -343,3 +343,299 @@ def test_parquet_merge_refuses_a_non_parquet_object(monkeypatch, tmp_path):
         standalone.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/")
 
     assert uploads == []
+
+
+class _MultipartS3:
+    """An S3 stand-in for the multipart calls the spool makes, keeping parts per upload."""
+
+    def __init__(self):
+        self.uploads, self.completed, self.aborted, self.single_puts = {}, [], [], []
+        self.next_id = 0
+
+    def create_multipart_upload(self, Bucket, Key, **kwargs):
+        self.next_id += 1
+        upload_id = f"upload-{self.next_id}"
+        self.uploads[upload_id] = {"key": Key, "parts": {}, "args": kwargs}
+        return {"UploadId": upload_id}
+
+    def upload_part(self, Bucket, Key, UploadId, PartNumber, Body):
+        self.uploads[UploadId]["parts"][PartNumber] = Body.read()
+        return {"ETag": f"etag-{PartNumber}"}
+
+    def list_parts(self, Bucket, Key, UploadId, PartNumberMarker=0):
+        # One part per page, so the pagination is exercised
+        numbers = sorted(n for n in self.uploads[UploadId]["parts"] if n > PartNumberMarker)
+        page = numbers[:1]
+        return {
+            "Parts": [{"PartNumber": n, "ETag": f"etag-{n}"} for n in page],
+            "IsTruncated": len(numbers) > 1,
+            "NextPartNumberMarker": page[0] if page else PartNumberMarker,
+        }
+
+    def complete_multipart_upload(self, Bucket, Key, UploadId, MultipartUpload):
+        upload = self.uploads.pop(UploadId)
+        content = b"".join(upload["parts"][p["PartNumber"]] for p in MultipartUpload["Parts"])
+        self.completed.append((Key, content, [p["PartNumber"] for p in MultipartUpload["Parts"]]))
+
+    def abort_multipart_upload(self, Bucket, Key, UploadId):
+        self.aborted.append(UploadId)
+        self.uploads.pop(UploadId)
+
+    def upload_file(self, path, bucket, key, ExtraArgs=None):
+        self.single_puts.append((key, Path(path).read_bytes()))
+
+
+def _fake_multipart_s3(monkeypatch, module, objects, part_bytes=10, min_part_bytes=5):
+    """Stub the S3 calls with tiny part sizes so a few bytes of input go multipart."""
+    fake = _MultipartS3()
+    for name in ("create_multipart_upload", "upload_part", "list_parts", "complete_multipart_upload"):
+        monkeypatch.setattr(module.s3, name, getattr(fake, name))
+    monkeypatch.setattr(module.s3, "abort_multipart_upload", fake.abort_multipart_upload)
+    monkeypatch.setattr(module.s3, "upload_file", fake.upload_file)
+    monkeypatch.setattr(module, "UPLOAD_PART_BYTES", part_bytes)
+    monkeypatch.setattr(module, "MIN_PART_BYTES", min_part_bytes)
+    keys = sorted(objects)
+
+    def list_objects(bucket, prefix, start_after=None):
+        return [{"Key": k, "Size": len(objects[k])} for k in keys if start_after is None or k > start_after]
+
+    monkeypatch.setattr(module, "list_objects_in_s3", list_objects)
+    monkeypatch.setattr(module, "get_object_from_s3", lambda bucket, key: objects[key])
+    return fake
+
+
+def test_merge_uploads_in_parts_once_the_output_exceeds_one_part(monkeypatch, tmp_path):
+    """A day larger than /tmp streams out as parts, byte-identical to the single-file merge."""
+    for module in (dm_compact, standalone):
+        objects = {f"logs/x/{i:02d}.log": f"{i:02d}-".encode() for i in range(12)}
+        fake = _fake_multipart_s3(monkeypatch, module, objects, part_bytes=10)
+        temp_dir = tmp_path / module.__name__
+        temp_dir.mkdir()
+
+        module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{temp_dir}/")
+
+        [(key, content, numbers)] = fake.completed
+        assert key == "compacted/x/compacted-x.log"
+        assert content == b"".join(objects[k] for k in sorted(objects))
+        # 36 bytes in: three full 12-byte parts (parts close on an object boundary past 10 bytes)
+        assert numbers == [1, 2, 3]
+        assert fake.single_puts == []
+        assert fake.uploads == {}
+        assert list(temp_dir.iterdir()) == []
+
+
+def test_small_output_is_still_a_single_put(monkeypatch, tmp_path):
+    for module in (dm_compact, standalone):
+        objects = {"logs/x/a.log": b"aaa", "logs/x/b.log": b"bbb"}
+        fake = _fake_multipart_s3(monkeypatch, module, objects, part_bytes=100)
+
+        module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/")
+
+        assert fake.single_puts == [("compacted/x/compacted-x.log", b"aaabbb")]
+        assert fake.completed == [] and fake.uploads == {}
+
+
+def test_merge_aborts_its_own_multipart_upload_when_a_fetch_fails(monkeypatch, tmp_path):
+    for module in (dm_compact, standalone):
+        monkeypatch.setattr(module, "FETCH_CONCURRENCY", 4)
+        objects = {f"logs/x/{i:02d}.log": b"0123456789" for i in range(20)}
+        fake = _fake_multipart_s3(monkeypatch, module, objects, part_bytes=10)
+        monkeypatch.setattr(module, "get_object_from_s3", _Fetches(fail_on="logs/x/05.log"))
+        temp_dir = tmp_path / module.__name__
+        temp_dir.mkdir()
+
+        with pytest.raises(RuntimeError, match="logs/x/05.log"):
+            module.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{temp_dir}/")
+
+        assert fake.aborted == ["upload-1"]
+        assert fake.completed == [] and fake.uploads == {}
+        assert list(temp_dir.iterdir()) == []
+
+
+def test_parquet_merge_streams_through_the_spool(monkeypatch, tmp_path):
+    objects = {f"logs/x/{i:02d}.parquet": _parquet({"n": [i] * 50}) for i in range(4)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=300)
+    monkeypatch.setattr(dm_compact, "FILE_FORMAT", "parquet")
+
+    dm_compact.merge_objects_from_s3("src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/")
+
+    [(key, content, numbers)] = fake.completed
+    assert key == "compacted/x/compacted-x.parquet"
+    assert len(numbers) > 1
+    assert pq.read_table(io.BytesIO(content)).to_pydict() == {"n": [i for i in range(4) for _ in range(50)]}
+    assert list(tmp_path.iterdir()) == []
+
+
+def _out_of_time_after(objects_written, fetches):
+    """An out_of_time stand-in that fires once that many objects have been fetched."""
+
+    def out_of_time():
+        return len(fetches.started) >= objects_written
+
+    return out_of_time
+
+
+def test_merge_checkpoints_when_out_of_time_and_a_continuation_finishes_the_day(monkeypatch, tmp_path):
+    """Parts uploaded before the clock ran out stay; the next invocation resumes after them."""
+    monkeypatch.setattr(dm_compact, "FETCH_CONCURRENCY", 1)
+    objects = {f"logs/x/{i:02d}.log": f"{i:02d}-".encode() for i in range(12)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=10, min_part_bytes=5)
+    fetches = _Fetches()
+    monkeypatch.setattr(
+        dm_compact, "get_object_from_s3", lambda bucket, key: objects[fetches(bucket, key).decode()]
+    )
+
+    continuation = dm_compact.merge_objects_from_s3(
+        "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", out_of_time=_out_of_time_after(5, fetches)
+    )
+
+    # Objects 00-03 made a 12-byte part; 04 alone (3 bytes) is under the 5-byte
+    # minimum, so it is dropped and refetched rather than uploaded short
+    assert continuation == {
+        "upload_id": "upload-1",
+        "key": "compacted/x/compacted-x.log",
+        "start_after": "logs/x/03.log",
+        "part_number": 2,
+    }
+    assert sorted(fake.uploads["upload-1"]["parts"]) == [1]
+    assert list(tmp_path.iterdir()) == []
+
+    assert (
+        dm_compact.merge_objects_from_s3(
+            "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", continuation=continuation
+        )
+        is None
+    )
+
+    [(key, content, numbers)] = fake.completed
+    assert key == "compacted/x/compacted-x.log"
+    assert content == b"".join(objects[k] for k in sorted(objects))
+    assert numbers == [1, 2, 3]
+    assert fake.uploads == {} and fake.single_puts == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_checkpoint_uploads_a_spool_that_is_big_enough_to_be_a_part(monkeypatch, tmp_path):
+    monkeypatch.setattr(dm_compact, "FETCH_CONCURRENCY", 1)
+    objects = {f"logs/x/{i:02d}.log": f"{i:02d}-".encode() for i in range(12)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=10, min_part_bytes=5)
+    fetches = _Fetches()
+    monkeypatch.setattr(
+        dm_compact, "get_object_from_s3", lambda bucket, key: objects[fetches(bucket, key).decode()]
+    )
+
+    continuation = dm_compact.merge_objects_from_s3(
+        "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", out_of_time=_out_of_time_after(6, fetches)
+    )
+
+    # 04 and 05 are 6 bytes: a legal part, so they are kept
+    assert continuation["start_after"] == "logs/x/05.log"
+    assert continuation["part_number"] == 3
+    assert fake.uploads["upload-1"]["parts"][2] == b"04-05-"
+
+
+def test_merge_fails_instead_of_looping_when_no_part_was_uploaded_in_time(monkeypatch, tmp_path):
+    objects = {"logs/x/a.log": b"aaa", "logs/x/b.log": b"bbb"}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=100, min_part_bytes=50)
+
+    with pytest.raises(RuntimeError, match="compact_lambda_timeout"):
+        dm_compact.merge_objects_from_s3(
+            "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", out_of_time=lambda: True
+        )
+
+    assert fake.uploads == {} and fake.completed == [] and fake.single_puts == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_continuation_completes_without_stale_parts_from_a_retried_invocation(monkeypatch, tmp_path):
+    """A retried continuation overwrites its part numbers; higher ones from the failed attempt stay out."""
+    objects = {f"logs/x/{i:02d}.log": f"{i:02d}-".encode() for i in range(8)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=10)
+    upload_id = fake.create_multipart_upload("dst", "compacted/x/compacted-x.log")["UploadId"]
+    fake.uploads[upload_id]["parts"] = {1: b"00-01-02-03-", 2: b"STALE", 3: b"STALE"}
+    continuation = {
+        "upload_id": upload_id,
+        "key": "compacted/x/compacted-x.log",
+        "start_after": "logs/x/03.log",
+        "part_number": 2,
+    }
+
+    dm_compact.merge_objects_from_s3(
+        "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", continuation=continuation
+    )
+
+    [(_, content, numbers)] = fake.completed
+    assert content == b"".join(objects[k] for k in sorted(objects))
+    assert numbers == [1, 2]
+
+
+def test_continuation_failure_leaves_the_inherited_upload_for_the_retry(monkeypatch, tmp_path):
+    monkeypatch.setattr(dm_compact, "FETCH_CONCURRENCY", 4)
+    objects = {f"logs/x/{i:02d}.log": b"0123456789" for i in range(20)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=10)
+    upload_id = fake.create_multipart_upload("dst", "compacted/x/compacted-x.log")["UploadId"]
+    fake.uploads[upload_id]["parts"] = {1: b"0123456789"}
+    monkeypatch.setattr(dm_compact, "get_object_from_s3", _Fetches(fail_on="logs/x/05.log"))
+    continuation = {
+        "upload_id": upload_id,
+        "key": "compacted/x/compacted-x.log",
+        "start_after": "logs/x/00.log",
+        "part_number": 2,
+    }
+
+    with pytest.raises(RuntimeError, match="logs/x/05.log"):
+        dm_compact.merge_objects_from_s3(
+            "src", "logs/x/", "dst", "compacted/x", f"{tmp_path}/", continuation=continuation
+        )
+
+    assert fake.aborted == []
+    assert upload_id in fake.uploads
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_lambda_handler_loops_the_map_while_a_continuation_is_returned(monkeypatch, tmp_path):
+    monkeypatch.setattr(dm_compact, "FETCH_CONCURRENCY", 1)
+    objects = {f"logs/x/{i:02d}.log": f"{i:02d}-".encode() for i in range(8)}
+    fake = _fake_multipart_s3(monkeypatch, dm_compact, objects, part_bytes=10, min_part_bytes=5)
+    monkeypatch.setattr(dm_compact, "CHECKPOINT_MARGIN_SECONDS", 1)
+
+    class Context:
+        """A clock that loses a second per poll, so the first invocation runs out after a few objects."""
+
+        def __init__(self, remaining_ms):
+            self.remaining_ms = remaining_ms
+
+        def get_remaining_time_in_millis(self):
+            self.remaining_ms -= 1000
+            return self.remaining_ms
+
+    event = {"src": '"s3://src/logs/x/"', "dest": '"s3://dst/compacted/x"'}
+    first = dm_compact.lambda_handler(event, Context(remaining_ms=6000))
+    assert first["src"] == event["src"] and first["dest"] == event["dest"]
+    assert first["continuation"]["part_number"] >= 2
+
+    second = dm_compact.lambda_handler(first, Context(remaining_ms=10**9))
+    assert second == {"statusCode": 200, "body": "Compaction complete!"}
+    [(key, content, _)] = fake.completed
+    assert key == "compacted/x/compacted-x.log"
+    assert content == b"".join(objects[k] for k in sorted(objects))
+
+
+def test_list_objects_is_lazy_and_resumes_after_a_key(monkeypatch):
+    pages = [
+        {"Contents": [{"Key": "a"}, {"Key": "b"}], "NextContinuationToken": "t1"},
+        {"Contents": [{"Key": "c"}]},
+    ]
+    calls = []
+
+    def list_objects_v2(**kwargs):
+        calls.append(kwargs)
+        return pages[len(calls) - 1]
+
+    monkeypatch.setattr(dm_compact.s3, "list_objects_v2", list_objects_v2)
+
+    listing = dm_compact.list_objects_in_s3("bkt", "p/", start_after="0")
+    assert next(listing) == {"Key": "a"}
+    assert len(calls) == 1 and calls[0] == {"Bucket": "bkt", "Prefix": "p/", "StartAfter": "0"}
+    assert [obj["Key"] for obj in listing] == ["b", "c"]
+    assert calls[1]["ContinuationToken"] == "t1"

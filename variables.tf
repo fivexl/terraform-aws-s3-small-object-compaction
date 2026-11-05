@@ -129,19 +129,19 @@ variable "compact_lambda_memory_size" {
 }
 
 variable "compact_lambda_timeout" {
-  description = "Timeout in seconds for the per-prefix compaction Lambda used by Step Functions"
+  description = "Timeout in seconds for one invocation of the per-prefix compaction Lambda used by Step Functions. In concat mode a date that does not finish within it is continued by the next invocation of the Map's loop, with the parts uploaded so far kept, so the timeout bounds an invocation rather than the date; in parquet mode the whole date must fit"
   type        = number
   default     = 300
 }
 
 variable "lambda_ephemeral_storage_size" {
-  description = "Ephemeral storage (/tmp) in MB for the compaction Lambdas, 512 to 10240. The merged bytes of a single date prefix are staged in /tmp before upload, so this must exceed the largest day of source data under any one prefix, or that date fails mid-write with 'No space left on device'"
+  description = "Ephemeral storage (/tmp) in MB for the compaction Lambdas, 512 to 10240. The merged output is uploaded in 256 MB parts as it is produced, so /tmp holds one part at a time, not the whole day, and the default fits any size of date prefix. Only the pyarrow layer in parquet mode needs more than the minimum"
   type        = number
   default     = 2048
 }
 
 variable "fetch_concurrency" {
-  description = "How many source objects the compaction functions fetch at once, 1 to 64. Objects are written in listing order whatever the value, so the compacted object is the same as a sequential merge. 1 fetches one object at a time, which at the ~65 ms one GET takes caps a date prefix at about 13,000 objects inside the 900 s Lambda maximum; the default lifts that past 100,000. Fetched bodies waiting to be written are capped at 32 MB of memory, so a prefix of large objects is fetched a few at a time"
+  description = "How many source objects the compaction functions fetch at once, 1 to 64. Objects are written in listing order whatever the value, so the compacted object is the same as a sequential merge. 1 fetches one object at a time, which at the ~65 ms one GET takes gets through about 13,000 objects per 900 s invocation; the default lifts that past 100,000, and in concat mode a date that needs more continues in the next invocation. Fetched bodies waiting to be written are capped at 32 MB of memory, so a prefix of large objects is fetched a few at a time"
   type        = number
   default     = 16
 
@@ -158,7 +158,7 @@ variable "sfn_max_concurrency" {
 }
 
 variable "sfn_child_execution_type" {
-  description = "Execution type of the Distributed Map child workflows. EXPRESS caps each date prefix at 5 minutes total regardless of compact_lambda_timeout, which a busy date on a large source cannot meet. STANDARD lifts that ceiling at Standard-workflow pricing"
+  description = "Execution type of the Distributed Map child workflows. EXPRESS caps each date prefix at 5 minutes total regardless of compact_lambda_timeout, continuations included, which a busy date on a large source cannot meet. STANDARD lifts that ceiling at Standard-workflow pricing"
   type        = string
   default     = "EXPRESS"
 

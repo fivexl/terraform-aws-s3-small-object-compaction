@@ -80,9 +80,11 @@ locals {
       actions   = ["s3:GetObject"]
       resources = ["${local.source_bucket_arn}/${local.source_prefix}*"]
     }
+    # PutObject covers creating, adding parts to and completing a multipart
+    # upload; listing its parts and aborting it are separate actions
     target_write = {
       effect    = "Allow"
-      actions   = ["s3:PutObject"]
+      actions   = ["s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"]
       resources = [local.target_bucket_arn, "${local.target_bucket_arn}/*"]
     }
   }
