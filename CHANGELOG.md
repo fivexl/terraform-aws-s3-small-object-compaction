@@ -5,15 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-06
 
 ### Fixed
 
-- Two limits stopped a date prefix from compacting however much the Lambda was given: the merged output was staged whole in `/tmp` before a single `upload_file`, so a day of more than the 10240 MB `/tmp` maximum failed with `No space left on device`, and a day that did not finish inside one invocation was retried from scratch and failed at the 900 s Lambda maximum. The output is now streamed to the target as a multipart upload in 256 MB parts spooled through `/tmp` one at a time, and in `concat` mode the Distributed Map's function checkpoints when its clock runs low: it returns the upload so far and where it stopped, and the Map's item processor loops it back into the function until the date is done. Output that never fills a part is uploaded as a single object exactly as before, so small days are byte-identical. A failed merge aborts the upload it created; an inherited one is left for the Map's retry of that invocation to resume ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32))
+- Two limits stopped a date prefix from compacting however much the Lambda was given: the merged output was staged whole in `/tmp` before a single `upload_file`, so a day of more than the 10240 MB `/tmp` maximum failed with `No space left on device`, and a day that did not finish inside one invocation was retried from scratch and failed at the 900 s Lambda maximum. The output is now streamed to the target as a multipart upload in 256 MB parts spooled through `/tmp` one at a time, and in `concat` mode the Distributed Map's function checkpoints when its clock runs low: it returns the upload so far and where it stopped, and the Map's item processor loops it back into the function until the date is done. Output that never fills a part is uploaded as a single object exactly as before, so small days are byte-identical. A failed merge aborts the upload it created; an inherited one is left for the Map's retry of that invocation to resume ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32), [#33](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/pull/33))
 
 ### Changed
 
-- The compaction functions list a date prefix lazily, a page at a time, so fetching starts on the first page instead of after the last; a date of half a million objects is five hundred listing calls ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32))
+- The compaction functions list a date prefix lazily, a page at a time, so fetching starts on the first page instead of after the last; a date of half a million objects is five hundred listing calls ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32), [#33](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/pull/33))
 
 ### Upgrade notes
 
