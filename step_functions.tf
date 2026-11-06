@@ -48,6 +48,9 @@ locals {
             Mode          = "DISTRIBUTED"
             ExecutionType = var.sfn_child_execution_type
           }
+          # A date too big for one invocation comes back with a continuation
+          # (the multipart upload so far and where to resume) and is fed
+          # straight back into the function until it finishes
           StartAt = "CompactFilesInPrefix"
           States = {
             CompactFilesInPrefix = {
@@ -59,7 +62,21 @@ locals {
                 FunctionName = "${module.compact_lambda.lambda_function_arn}:$LATEST"
               }
               Retry = local.lambda_invoke_retry
-              End   = true
+              Next  = "MoreOfThisPrefix"
+            }
+            MoreOfThisPrefix = {
+              Type = "Choice"
+              Choices = [
+                {
+                  Variable  = "$.continuation"
+                  IsPresent = true
+                  Next      = "CompactFilesInPrefix"
+                },
+              ]
+              Default = "PrefixCompacted"
+            }
+            PrefixCompacted = {
+              Type = "Succeed"
             }
           }
         }

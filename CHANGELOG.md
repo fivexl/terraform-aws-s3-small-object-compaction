@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Two limits stopped a date prefix from compacting however much the Lambda was given: the merged output was staged whole in `/tmp` before a single `upload_file`, so a day of more than the 10240 MB `/tmp` maximum failed with `No space left on device`, and a day that did not finish inside one invocation was retried from scratch and failed at the 900 s Lambda maximum. The output is now streamed to the target as a multipart upload in 256 MB parts spooled through `/tmp` one at a time, and in `concat` mode the Distributed Map's function checkpoints when its clock runs low: it returns the upload so far and where it stopped, and the Map's item processor loops it back into the function until the date is done. Output that never fills a part is uploaded as a single object exactly as before, so small days are byte-identical. A failed merge aborts the upload it created; an inherited one is left for the Map's retry of that invocation to resume ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32))
+
+### Changed
+
+- The compaction functions list a date prefix lazily, a page at a time, so fetching starts on the first page instead of after the last; a date of half a million objects is five hundred listing calls ([#32](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/issues/32))
+
+### Upgrade notes
+
+The plan shows a code update of the two compaction functions, `s3:ListMultipartUploadParts` and `s3:AbortMultipartUpload` added to their target-bucket policy statement, and an in-place update of the state machine definition (a `Choice` and a `Succeed` state inside the Map's item processor). `lambda_ephemeral_storage_size` no longer needs to cover the largest day; 512 is enough in `concat` mode, but the default is unchanged. Add an `AbortIncompleteMultipartUpload` lifecycle rule to the target bucket if it has none. A date that needs more than one invocation also needs `sfn_child_execution_type = "STANDARD"`.
+
 ## [0.5.2] - 2026-11-03
 
 0.5.1 is unusable: its tag was cut from a commit that dropped most of the module (every root `.tf` file, the README, the listing function, the CI config), so the registry serves a module with no Terraform in it. 0.5.2 is the same release with the tree restored ([#31](https://github.com/fivexl/terraform-aws-s3-small-object-compaction/pull/31)). Pin `>= 0.5.2`.
